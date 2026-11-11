@@ -6,7 +6,7 @@ This repo (littlecountrycars/lcc-vehicle-scan-test) is the test copy of LCC Vehi
 **Changes get made here first.** Make the change in this repo, run `node tests/demo-test.js`, bump `VERSION` in `sw.js`, push, and try it on a phone from the TEST icon. When it's right, copy it to lcc-vehicle-scan: copy **every file except `manifest.webmanifest` and the icons** (`icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`), run the demo-truck test there, and push.
 
 Only these differ from the real app, and they must never be copied over:
-- `manifest.webmanifest`: name "LCC Vehicle Scan TEST", short name "Scan TEST".
+- `manifest.webmanifest`: name "LCC Vehicle Scan TEST", short name "Scan TEST", and `"id": "/lcc-vehicle-scan-test/"`. The real app's `"id": "./"` is worked out by Chrome from the site root (`https://littlecountrycars.github.io/`), so without its own id the test copy counts as the same app and Android says "already installed".
 - The PNG icons have a black "TEST" band across the bottom so the two home-screen icons look different.
 - This TEST section of CLAUDE.md and the top of README.md (keep the real repo's own wording when copying those two back).
 
