@@ -40,6 +40,9 @@ async function runMode(browser, base, mode) {
   });
   await page.goto(base + '?mode=' + mode);
   ok((await page.textContent('#modeTitle')).length > 0, 'opens in ' + mode + ' mode: ' + await page.textContent('#modeTitle'));
+  ok(await page.isVisible('#splash'), 'loading screen shows');
+  await page.waitForSelector('#splash', { state: 'detached', timeout: 6000 });
+  ok(true, 'loading screen goes away by itself');
   await page.click('#demoBtn');
   await page.waitForSelector('#connPill.demo');
   const quick = await page.isVisible('#quickBtn');

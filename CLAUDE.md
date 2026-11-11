@@ -54,7 +54,7 @@ The mode is picked on first open and remembered per phone; tap the name at the t
 - `obd.js`: scanner engine. Transports (Web Serial classic Bluetooth, Web Bluetooth LE, demo truck), ELM327 commands, code parsing, idle/misfire, cranking test, freeze frame, Ford module codes (UDS 0x19), drive analysis (`assessDrive(r, before, after, { lane })`), fix/parts/cost table (`FIXES`), parts links (`SHOPS`).
 - `app.js`: screens, modes, estimate, red flags/call/offer, reports, share/PDF, monday.com (Check-In only), history, settings, migration from the old apps.
 - `modes/checkin.js`, `modes/auction.js`, `modes/trade.js`: each mode's wording and defaults.
-- `index.html`: layout and styles. Elements with `data-modes="..."`, `data-money="bid"`, `data-dest="monday|phone"` or `data-quick` show only where they apply.
+- `index.html`: layout and styles. Starts with the loading screen (`#splash`): the Nebraska border traces, fills orange and bounces, then "Little" and "Country" rise one word at a time (about 3.4 s, tap to skip). It is CSS only, so it fades out even if a script fails, and a small inline script removes it. Elements with `data-modes="..."`, `data-money="bid"`, `data-dest="monday|phone"` or `data-quick` show only where they apply.
 - `sw.js`: offline copy in this app's own IndexedDB database (`lcc-vehicle-scan`), never Cache Storage. Only handles its own folder.
 - `manifest.webmanifest`: home-screen install, with a shortcut per mode.
 - `tests/demo-test.js`: the demo-truck test. `.github/workflows/demo-test.yml` runs it.
