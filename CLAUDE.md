@@ -22,6 +22,7 @@ Live: https://littlecountrycars.github.io/lcc-vehicle-scan/ (GitHub Pages from `
 | Part | Files | Owner | Sign-off |
 |---|---|---|---|
 | Shared engine and screens | `obd.js`, `app.js`, `index.html`, `sw.js`, tests | **Dylan** | Jonathan for process/money changes |
+| Read codes | `modes/codes.js` | **Dylan** | |
 | Check-In mode (recon, monday.com) | `modes/checkin.js` + the monday.com section of `app.js` | **Dylan** | Jonathan (recon SOP, $1,000 rule) |
 | Auction mode (buying) | `modes/auction.js` | **Jonathan** | Jonathan |
 | Trade mode (sales) | `modes/trade.js` | **Simon** | Jonathan for the offer math |
@@ -41,19 +42,33 @@ Dylan is the product owner of Vehicle Scan.
 
 When the session belongs to someone other than Dylan, use a branch and a pull request even if git would allow a direct push.
 
+## How the app flows (test copy, Nov 11, 2026)
+1. **Start screen:** Connect scanner, and Recent scans (every kind, newest first). No mode is picked up front.
+2. **Connect:** the vehicle is read by itself: VIN (NHTSA lookup for year, make, model, trim, engine, drive, transmission gears), computer miles, codes, self-tests, battery, freeze frame, and Ford airbag/ABS/transmission/body modules. Miles, Stock # and Color can be typed over.
+3. **Pick what to do with it:** Read codes, Check-In, Auction or Trade (tap the title, "Change", to switch for the same vehicle). A scan is saved to the phone once one is picked.
+4. Inside a mode, the vehicle line stays pinned under the header (e.g. `2016 F150 XLT Green 102k 2.7L V6`, the same style as monday.com item names).
+5. **Recent scans:** tap one for its summary page (the same report that's shared or sent to monday.com), with Share, Send (unsent Check-In) and Open in monday.com (sent).
+
 ## Modes
+- **Read codes** (`codes`): just the health card (codes, likely fix, parts, self-tests, recalls) and Share. No battery/idle, drive, estimate or money. Never touches monday.com. Kept 30 days.
 - **Check-In** (`checkin`): a vehicle LCC bought arrives. Stock # = last 6 of the VIN. Full test drive. Day-1 estimate. Sends to monday.com Inventory Recon; over $1,000 notifies Jonathan. Kept on the phone 30 days.
-- **Auction** (`auction`): appraising at a physical auction, including vehicles we may not buy. Quick appraisal (scan + freeze frame + Ford modules + 15-second idle), the call (Bid / Caution / Walk away), max bid, next vehicle (bumps a numeric lane/run #), lane drive (~300 m, 35-45 mph; torque converter shudder can't be checked), lookups retried when signal returns. **Never touches monday.com.** Kept 8 days by default (the same unit can come back at next week's auction).
-- **Trade** (`trade`): Simon valuing a customer's trade at the desk. Quick appraisal, full test drive, the call (Good trade / Adjust offer / Wholesale only), trade offer, payoff and customer equity, a customer copy with no prices or internal notes. **Never touches monday.com.** Kept 30 days.
+- **Auction** (`auction`): appraising at a physical auction, including vehicles we may not buy. Quick appraisal (the read already covers scan + freeze frame + Ford modules; then a 15-second idle), the call (Bid / Caution / Walk away), max bid, next vehicle (bumps a numeric lane/run #), lane drive (~300 m, 35-45 mph; torque converter shudder can't be checked), lookups retried when signal returns. **Never touches monday.com.** Kept 8 days by default (the same unit can come back at next week's auction).
+- **Trade** (`trade`): Simon valuing a customer's trade at the desk. Quick appraisal (15-second idle), full test drive, the call (Good trade / Adjust offer / Wholesale only), trade offer, payoff and customer equity, a customer copy with no prices or internal notes. **Never touches monday.com.** Kept 30 days.
 
-Max bid / trade offer = expected sale price (typed, from SCOUT's expected sale price) − this vehicle's estimated recon − minimum profit/gross wanted (setting, default $2,500 per Jonathan) − fees/transport (setting, default $0). Don't use SCOUT's max bid as the input: SCOUT already subtracts its own typical recon and gross. Hard red flags (Walk away / Wholesale only): codes cleared recently with 2+ self-tests unfinished, odometer mismatch > 1,000 mi (typed dash vs computer), transmission codes, airbag faults, active transmission-module faults, slipping/shudder on the drive, or an offer at or below $0.
+Max bid / trade offer = expected sale price (typed, from SCOUT's expected sale price) − this vehicle's estimated recon − minimum profit/gross wanted (setting, default $2,500 per Jonathan) − fees/transport (setting, default $0). Don't use SCOUT's max bid as the input: SCOUT already subtracts its own typical recon and gross. Hard red flags (Walk away / Wholesale only): codes cleared recently with 2+ self-tests unfinished, odometer mismatch > 1,000 mi (typed dash vs computer), transmission codes, airbag faults, active transmission-module faults, slipping on the drive (felt by the driver, or big repeated flares), torque converter shudder, or an offer at or below $0.
 
-The mode is picked on first open and remembered per phone; tap the name at the top to switch. `?mode=checkin|auction|trade` in the link opens a mode (home-screen shortcuts use this). `#vin=<VIN>&sale=<price>` fills a sale price into a saved Auction/Trade appraisal (for a future SCOUT "send back" button).
+**Estimates are LCC's cost, not retail** (Nov 11, 2026, Dylan; **not yet agreed with Jonathan**, since they feed max bid / trade offer and the $1,000 rule): parts at our price (Walmart or a used battery about $50-100, used/junkyard, RockAuto, Amazon) plus our own labor. Ranges live in `FIXES` and `MODULE_FIX` in `obd.js` and in `suggestedLines` in `app.js`. Tiers follow the new ranges: a catalytic converter (P0420/P0430) and an engine computer code are now `$$`, so on their own they no longer trigger "likely over $1,000"; the total still does.
+
+**Misfires:** occasional misfires are normal and need no parts. "Active misfire" (problem, plan on plug + coil) = a misfire code on that cylinder (P0301-P0312), or that cylinder's this-trip counter 30+ and 3x the others, or its 10-trip average 50+ while still misfiring this trip. A high 10-trip average that isn't misfiring now = "Past misfires" (watch, no parts). Only an active misfire or a rough idle adds plugs and coils to the estimate.
+
+**Shift flares:** a flare only counts when RPM jumps without the truck speeding up and then drops back (a slip); a jump that stays up is a downshift. 8- and 10-speeds (gear count from the VIN) need a 500+ RPM jump to count, others 350+. With any flare the app asks "Did it feel like it slipped?": Yes = problem (hard red flag), No = fine. Without an answer it's a watch, unless there are 5+ flares with 3+ big ones (900+ RPM on 8/10-speeds, 700+ otherwise), which is a problem on its own.
+
+The mode is picked per vehicle after it's read (see How the app flows). `?mode=codes|checkin|auction|trade` in the link goes straight to that mode once the vehicle is read (home-screen shortcuts use this). `#vin=<VIN>&sale=<price>` fills a sale price into a saved Auction/Trade appraisal (for a future SCOUT "send back" button).
 
 ## Files
 - `obd.js`: scanner engine. Transports (Web Serial classic Bluetooth, Web Bluetooth LE, demo truck), ELM327 commands, code parsing, idle/misfire, cranking test, freeze frame, Ford module codes (UDS 0x19), drive analysis (`assessDrive(r, before, after, { lane })`), fix/parts/cost table (`FIXES`), parts links (`SHOPS`).
-- `app.js`: screens, modes, estimate, red flags/call/offer, reports, share/PDF, monday.com (Check-In only), history, settings, migration from the old apps.
-- `modes/checkin.js`, `modes/auction.js`, `modes/trade.js`: each mode's wording and defaults.
+- `app.js`: start screen, vehicle read and pick, modes, summary page, estimate, red flags/call/offer, reports, share/PDF, monday.com (Check-In only), history, settings, migration from the old apps.
+- `modes/codes.js`, `modes/checkin.js`, `modes/auction.js`, `modes/trade.js`: each mode's wording and defaults (`basic: true` in codes.js hides the battery/idle, drive and estimate steps).
 - `index.html`: layout and styles. Starts with the loading screen (`#splash`): the Nebraska border traces, fills orange and bounces, then "Little" and "Country" rise one word at a time (about 1.7 s, tap to skip). It is CSS only, so it fades out even if a script fails, and a small inline script removes it. Elements with `data-modes="..."`, `data-money="bid"`, `data-dest="monday|phone"` or `data-quick` show only where they apply.
 - `sw.js`: offline copy in this app's own IndexedDB database (`lcc-vehicle-scan`), never Cache Storage. Only handles its own folder.
 - `manifest.webmanifest`: home-screen install, with a shortcut per mode.

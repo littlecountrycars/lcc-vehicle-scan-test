@@ -30,7 +30,7 @@ h1, h2, h3, .kpi { font-family: var(--font-head); font-weight: 400; margin: 0; l
 button, input, textarea { font: inherit; color: inherit; }
 .testbar { background: #000; color: var(--lcc-orange); font: 700 13px/1 Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; text-align: center; padding: 8px 12px; }
 .is-test .top { border-bottom: 3px solid var(--lcc-orange); }
-.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px;
+.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: var(--bg); border-bottom: 2px solid var(--fg); }
 .top .mark { width: 34px; height: 34px; flex: none; }
 .top h1 { font-size: 20px; text-transform: uppercase; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -147,6 +147,17 @@ ul.est li button { width: 40px; height: 40px; border-radius: 8px; border: 1px so
 .modebtn h1 { flex: 0 1 auto; }
 .modebtn .caret { font-size: 14px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
 .modes { display: grid; gap: 10px; }
+.vehline { flex-basis: 100%; order: 10; font-family: var(--font-head); font-size: 17px; letter-spacing: .02em; text-transform: uppercase; color: var(--fg);
+  margin: -4px 0 0; padding-left: 44px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vehname { font-family: var(--font-head); font-size: 24px; line-height: 1.15; text-transform: uppercase; margin: 0; text-wrap: balance; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+@media (max-width: 380px) { .grid3 { grid-template-columns: 1fr 1fr; } }
+.hist li .histopen { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+dialog.sum { max-height: calc(100vh - 32px); overflow: auto; }
+.sumhead { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.sumbody { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.sumbody ul { margin: 4px 0 8px; padding-left: 20px; }
+.sumbody a { color: inherit; }
 .modes button { text-align: left; display: grid; gap: 2px; padding: 14px 16px; border-radius: 12px; border: 2px solid var(--line); background: var(--card); cursor: pointer; }
 .modes button b { font-family: var(--font-head); font-weight: 400; font-size: 22px; text-transform: uppercase; }
 .modes button span { color: var(--muted); font-size: 14px; }
@@ -207,9 +218,10 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
 </script>
 <header class="top">
   <svg class="mark" viewBox="432 413 336 336" aria-hidden="true"><path fill="currentColor" d="M 442 502.4 L 632.8 502.4 C 632.8 502.4 634.4 505 638 507.5 C 641.5 509.9 645.4 510.4 647.7 512 C 650.1 513.5 650.9 515.5 653.6 515 C 656.3 514.6 657.2 511.9 657.6 510.7 C 658 509.5 659.1 509.1 660.5 510.4 C 661.9 511.7 663 509.5 664 510.1 C 664.9 510.6 665.8 512.2 666.2 511.1 C 666.6 510 666.8 509.5 668.2 510.1 C 669.6 510.6 672 510.8 674.7 510.4 C 677.3 509.9 682.1 509.5 682.9 510.7 C 683.7 511.9 685.8 514.8 689.2 515.1 C 692.5 515.4 692.8 515.6 694.6 516.7 C 696.3 517.7 699.2 517.1 699.8 518.7 C 700.4 520.3 701.3 520.2 702.5 520.2 C 703.6 520.1 704 520.8 703.9 522.6 C 703.9 524.4 705.7 527.5 707.1 528.2 C 708.5 528.9 709.9 528.1 710.7 528.8 C 711.5 529.5 711 530 713 529.8 C 714.9 529.6 716.4 529.9 716.2 531.4 C 716 533 715 536.3 715.5 537.7 C 716 539.1 718.1 540.7 718.3 542.6 C 718.4 544.5 716.9 545.3 718.3 547.1 C 719.7 549 720.7 549.1 720.7 550.9 C 720.7 552.6 720.5 552.8 721.7 553.6 C 722.9 554.4 725.6 556.5 726 557.4 C 726.5 558.4 725.3 560.8 726 562.5 C 726.8 564.2 727.9 564.9 728.4 566.8 C 728.9 568.7 728.1 570.9 727.5 572.2 C 727 573.6 727.4 576.8 727.7 578.6 C 728.1 580.3 729.1 581.2 729.1 581.2 C 729.1 581.2 730 579.4 730.9 579.3 C 730.9 579.3 731.1 580.6 731.1 582 C 731.1 583.5 732.3 583.6 733.3 583.9 C 734.2 584.2 734.6 584.6 734.3 586.2 C 734 587.8 733.2 590 734.1 590.7 C 735.1 591.4 736.4 590.9 736.3 592.3 C 736.2 593.7 734.9 594.3 734.7 596 C 734.5 597.6 734.7 598 735.6 598.1 C 736.4 598.1 738.9 597.9 737.8 599.2 C 736.7 600.5 735.8 603.8 736.9 607.2 C 738 610.6 738.7 612.7 738.4 614 C 738.1 615.3 738.1 615.5 738 616.9 C 737.9 618.3 738 619.5 736.8 620.6 C 735.7 621.7 735.8 622.8 736.4 623.1 C 737.1 623.3 740.3 624.7 740.5 627.3 C 740.8 630 740.5 631.5 741.5 632 C 742.5 632.5 743.5 633.6 743.9 635.9 C 744.2 638.2 745.5 640 745.5 641.5 C 745.5 643.1 745.4 643.9 746.8 644.1 C 748.2 644.4 750.2 645 751.4 647.2 C 752.5 649.4 752 651 753.1 651.6 C 754.3 652.1 755.3 652.9 754.7 654.5 C 754 656.1 753.9 657.3 754.9 657.4 C 755.8 657.6 758.1 658.5 758 659.8 L 493.8 659.8 L 493.8 608.1 L 442 608.1 Z M 442 502.4"/><path fill="#FF8C00" d="M 719.6 642.7 L 731 638.3 C 731 638.3 731.1 631.7 731 631 C 730.8 630.2 727.8 628.7 726.6 625 C 725.4 621.3 726.5 618.2 727.7 616 C 728.9 613.8 728.2 610.3 727.7 608.5 C 727.2 606.7 726.3 605.8 725.1 605.5 C 723.9 605.2 724.8 597.7 724.6 596.4 C 724.3 595.1 720.9 588.3 719 584.1 C 717 579.9 716.7 571.7 717.6 569.4 C 718.5 567.1 717.4 566.9 716.8 565.7 C 716.2 564.4 716 563.4 716 562.3 C 716 561.2 714.5 560.7 713.3 559.4 C 712.1 558.1 711.1 556.1 711.1 554.7 C 711.1 553.3 710.1 552.5 708.9 550.9 C 707.8 549.2 707.8 546.8 707.8 545.2 C 707.8 543.6 708 543 706.7 541.7 C 705.4 540.4 705.6 538 705.6 538 C 705.6 538 703.9 537.4 701.6 536.4 C 699.4 535.4 697.2 531.3 696.1 529.4 C 695.2 527.7 691.9 525.6 688 524.5 C 687.4 524.3 686.7 524.2 686.1 524.1 C 681.4 523.2 677.7 519.5 677.7 519.5 C 676.8 520.1 672.6 520.3 672.6 520.3 L 669.2 526.5 L 662.3 521.3 C 662.3 521.3 660.1 523.4 655.5 524.6 C 650.9 525.8 646.2 524.1 644.5 521.9 C 642.7 519.8 640.4 519.3 636.3 517.6 C 632.3 515.9 628 512.5 628 512.5 L 451.6 512.5 L 451.6 598.5 L 503.3 598.5 L 503.3 649.9 L 734.8 649.9 Z M 719.6 642.7"/></svg>
-  <button id="modeBtn" class="modebtn" aria-label="Change mode"><h1 id="modeTitle">Vehicle Scan</h1><span class="caret">Mode &#9662;</span></button>
+  <button id="modeBtn" class="modebtn" aria-label="Pick what to do with this vehicle"><h1 id="modeTitle">Vehicle Scan</h1><span id="modeCaret" class="caret hidden">Change &#9662;</span></button>
   <span id="connPill" class="pill">Not connected</span>
   <button id="settingsBtn" class="iconbtn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  <div id="vehLine" class="vehline hidden" aria-live="polite"></div>
 </header>
 
 <main>
@@ -223,13 +235,13 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
   </section>
 
   <section id="connectCard" class="card">
-    <h2><span class="step">1</span>Scanner</h2>
+    <h2>Scanner</h2>
     <p id="connectMsg" class="muted" style="margin:0 0 12px">Plug the scanner in, turn the key to ON (or start the truck), then connect.</p>
     <div class="row">
       <button id="connectBtn" class="btn primary" style="flex:1">Connect scanner</button>
       <button id="disconnectBtn" class="btn hidden">Disconnect</button>
     </div>
-    <div class="row" style="margin-top:4px">
+    <div id="scannerLinks" class="row" style="margin-top:4px">
       <button id="otherBtn" class="btn link">Pick a different scanner</button>
       <button id="bleBtn" class="btn link">Bluetooth LE scanner</button>
       <button id="demoBtn" class="btn link">Practice with a demo truck</button>
@@ -258,25 +270,29 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
     </details>
   </section>
 
-  <section id="vehicleCard" class="card">
-    <h2><span class="step">2</span>Scan the vehicle</h2>
-    <div class="grid2">
-      <label class="f">Miles<input id="miles" type="number" inputmode="numeric" placeholder="Fills in from scan"></label>
-      <label class="f"><span id="stockLabel">Stock #</span><input id="stock" type="text" autocapitalize="characters" placeholder="Optional"></label>
-    </div>
-    <p id="autoNote" class="muted small hidden" style="margin:8px 0 0"></p>
-    <label class="check" style="margin:10px 0 4px"><input id="doModules" type="checkbox" checked><span>Also read airbag, ABS, transmission and body modules (Ford, adds about 20 seconds)</span></label>
-    <p id="scanHint" class="muted small" style="margin:4px 0 12px"></p>
-    <div data-quick>
-      <button id="quickBtn" class="btn primary block" disabled>Quick appraisal (about 2 minutes)</button>
-      <p id="quickHint" class="muted small" style="margin:6px 0 10px"></p>
-    </div>
-    <button id="scanBtn" class="btn block" disabled>Scan only</button>
-    <div id="scanProgress" class="progress hidden" style="margin-top:12px" aria-live="polite">
+  <section id="vehicleCard" class="card hidden">
+    <h2>Vehicle</h2>
+    <div id="scanProgress" class="progress hidden" aria-live="polite">
       <div class="bar"><i id="scanBar"></i></div>
       <span id="scanStep" class="muted small"></span>
     </div>
+    <div id="vehInfo" class="hidden">
+      <p id="vehName" class="vehname"></p>
+      <dl id="vehFacts" class="readings"></dl>
+      <div class="grid3" style="margin-top:12px">
+        <label class="f">Miles<input id="miles" type="number" inputmode="numeric" placeholder="From dash"></label>
+        <label class="f"><span id="stockLabel">Stock #</span><input id="stock" type="text" autocapitalize="characters" placeholder="Optional"></label>
+        <label class="f">Color<input id="color" type="text" autocapitalize="words" placeholder="Green"></label>
+      </div>
+      <p id="autoNote" class="muted small hidden" style="margin:8px 0 0"></p>
+    </div>
     <div id="scanErr" class="notice err hidden" role="alert" style="margin-top:12px"></div>
+    <button id="rescanBtn" class="btn block" style="margin-top:12px" disabled>Read vehicle</button>
+  </section>
+
+  <section id="pickCard" class="card hidden">
+    <h2>What are you doing with it?</h2>
+    <div id="pickList" class="modes"></div>
   </section>
 
   <section id="callCard" class="card callcard hidden" aria-live="polite">
@@ -301,11 +317,12 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
     <div id="monWrap" class="hidden" style="margin-top:12px">
       <span class="muted small">Self-tests (readiness monitors)</span>
       <div id="mons" class="mons"></div>
+      <p class="muted small" style="margin:8px 0 0">Checks the engine computer runs on itself while driving. Clearing codes or disconnecting the battery resets them to not finished, and they take 50&ndash;100 miles of mixed driving to finish. Several not finished with few miles since codes were cleared can mean someone cleared codes to hide a problem.</p>
     </div>
   </section>
 
   <section id="idleCard" class="card hidden">
-    <h2><span class="step">3</span>Battery, idle &amp; misfires</h2>
+    <h2>Battery, idle &amp; misfires</h2>
     <div id="crankBox" style="margin-bottom:16px">
       <p class="muted" style="margin:0 0 8px"><b style="color:var(--fg)">Cranking test.</b> Engine off, key on. Tap start, then start the truck within 5 seconds. It watches battery voltage while it cranks.</p>
       <button id="crankBtn" class="btn block">Start cranking test</button>
@@ -329,7 +346,7 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
   </section>
 
   <section id="driveCard" class="card hidden">
-    <h2><span class="step">4</span><span id="driveTitle">Test drive</span></h2>
+    <h2><span id="driveTitle">Test drive</span></h2>
     <p id="driveIntro" class="muted" style="margin:0 0 12px"></p>
     <button id="driveBtn" class="btn dark block">Start test drive</button>
     <div id="driveLive" class="hidden" style="margin-top:12px">
@@ -343,11 +360,15 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
     <div id="driveResult" class="hidden" style="margin-top:12px">
       <div id="driveVerdict" class="verdict"></div>
       <ul id="driveFindings" class="findings"></ul>
+      <div id="feltBox" class="hidden" style="margin-top:12px">
+        <p style="margin:0 0 8px"><b>Did it feel like it slipped or flared on a shift?</b></p>
+        <div class="row"><button id="feltYes" class="btn" style="flex:1">Yes, it slipped</button><button id="feltNo" class="btn" style="flex:1">No, shifted fine</button></div>
+      </div>
     </div>
   </section>
 
   <section id="sendCard" class="card hidden">
-    <h2><span class="step">5</span><span id="sendTitle">Estimate &amp; send</span></h2>
+    <h2><span id="sendTitle">Estimate &amp; send</span></h2>
     <div id="estBox" style="display:grid; gap:8px; margin-bottom:12px">
       <span id="estHint" class="muted small"></span>
       <ul id="estLines" class="est"></ul>
@@ -407,20 +428,30 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
 <div id="toast" class="toast hidden" role="status"></div>
 <p class="foot">Little Country Cars &middot; Vehicle Scan &middot; Read-only scanner: it never clears codes.</p>
 
-<dialog id="modeDlg">
-  <form method="dialog" class="in">
-    <h2 style="font-size:22px; text-transform:uppercase">What are you scanning for?</h2>
-    <div id="modeList" class="modes"></div>
-    <span class="muted small">This phone remembers your choice. Switch any time by tapping the name at the top.</span>
-  </form>
+
+<dialog id="sumDlg" class="sum" aria-labelledby="sumTitle">
+  <div class="in">
+    <div class="sumhead">
+      <div style="min-width:0"><h2 id="sumTitle" style="font-size:22px; text-transform:uppercase; margin:0"></h2><span id="sumMeta" class="muted small"></span></div>
+      <button id="sumClose" type="button" class="iconbtn" aria-label="Close">&times;</button>
+    </div>
+    <div id="sumBody" class="sumbody"></div>
+    <div id="sumMsg" class="notice hidden" role="status"></div>
+    <div class="row">
+      <button id="sumShare" type="button" class="btn primary" style="flex:1">Share</button>
+      <button id="sumSend" type="button" class="btn" style="flex:1">Send to monday.com</button>
+      <a id="sumMonday" class="btn hidden" target="_blank" rel="noopener" style="flex:1; text-decoration:none; display:inline-flex; align-items:center; justify-content:center">Open in monday.com</a>
+    </div>
+    <button id="sumCust" type="button" class="btn block hidden">Customer copy (no prices)</button>
+  </div>
 </dialog>
 
 <dialog id="settings">
   <form method="dialog" class="in">
     <h2 style="font-size:22px; text-transform:uppercase">Settings</h2>
     <label class="f">Your name<input id="techName" type="text" placeholder="First name" autocomplete="given-name"></label>
-    <div data-modes="checkin" style="display:grid; gap:12px">
-      <label class="f">monday.com API token
+    <div style="display:grid; gap:12px">
+      <label class="f">monday.com API token (Check-In)
         <input id="token" type="password" autocomplete="off" placeholder="Paste token">
       </label>
       <span class="muted small">In monday.com: your profile picture &rarr; <b>Developers</b> &rarr; <b>My access tokens</b> &rarr; Copy. It's saved only on this phone.</span>
@@ -436,7 +467,6 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
       <select id="keepDays" class="sel"></select>
     </label>
     <div class="row" style="justify-content:space-between">
-      <button id="changeMode" type="button" class="btn">Change mode</button>
       <button id="clearHist" type="button" class="btn link">Clear saved</button>
       <button class="btn primary" value="save">Done</button>
     </div>
@@ -444,6 +474,7 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
 </dialog>
 
 <script src="obd.js"></script>
+<script src="modes/codes.js"></script>
 <script src="modes/checkin.js"></script>
 <script src="modes/auction.js"></script>
 <script src="modes/trade.js"></script>

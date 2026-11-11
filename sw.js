@@ -3,9 +3,9 @@
    browser's shared Cache Storage list. Other LCC apps on the same site (littlecountrycars.github.io)
    can clear Cache Storage when they update; they never touch this database.
    Network first so updates arrive; saved copy as fallback when there's no signal. */
-const VERSION = 'v5'; // bump when any file changes
+const VERSION = 'v6'; // bump when any file changes
 const STORE = 'files';
-const SHELL = ['./', 'index.html', 'obd.js', 'app.js', 'modes/checkin.js', 'modes/auction.js', 'modes/trade.js', 'manifest.webmanifest', 'icon.svg', 'icon-app.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
+const SHELL = ['./', 'index.html', 'obd.js', 'app.js', 'modes/codes.js', 'modes/checkin.js', 'modes/auction.js', 'modes/trade.js', 'manifest.webmanifest', 'icon.svg', 'icon-app.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 const BASE = new URL('./', self.location).pathname; // e.g. /lcc-vehicle-scan/
 const DB = /-test\/$/.test(BASE) ? 'lcc-vehicle-scan-test' : 'lcc-vehicle-scan'; // the test copy keeps its own offline copy
 

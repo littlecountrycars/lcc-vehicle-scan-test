@@ -1,11 +1,12 @@
-/* LCC Vehicle Scan: one app, three modes (Check-In, Auction, Trade).
+/* LCC Vehicle Scan: connect, the vehicle is read automatically, then pick what to do with it:
+   Read codes, Check-In, Auction or Trade.
    Shared screens and logic. Owner: Dylan. Money math (max bid, trade offer) and process changes: Jonathan signs off.
    Mode wording and defaults live in modes/*.js. Only Check-In mode talks to monday.com. */
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
   const MODES = window.LCC_MODES || {};
-  const MODE_ORDER = ['checkin', 'auction', 'trade'].filter((k) => MODES[k]);
+  const MODE_ORDER = ['codes', 'checkin', 'auction', 'trade'].filter((k) => MODES[k]);
 
   /* ---------- monday.com (Check-In mode only) ---------- */
   const BOARD = '18410463373';           // Inventory Recon (new)
@@ -72,10 +73,12 @@
   }
 
   let settings = Object.assign({ name: '', token: '', fill: true, per: {} }, store.get(LS.settings, {}));
+  // A home-screen shortcut (?mode=auction) goes straight to that mode once the vehicle is read.
   const urlMode = new URLSearchParams(location.search).get('mode');
-  let modeId = MODES[urlMode] ? urlMode : (MODES[store.get(LS.mode, '')] ? store.get(LS.mode, '') : null);
-  let M = MODES[modeId] || MODES.checkin;
-  if (MODES[urlMode]) store.set(LS.mode, urlMode);
+  let autoPick = MODES[urlMode] ? urlMode : null;
+  // M: the mode of the vehicle on screen; before one is picked, the last mode used on this phone (for Settings).
+  let M = MODES[autoPick] || MODES[store.get(LS.mode, '')] || MODES.checkin;
+  const picked = () => !!(current && current.mode);
 
   function per(id) {
     const m = MODES[id || M.id] || M; const p = settings.per[m.id] || {};
@@ -98,8 +101,10 @@
     p.textContent = transport ? (transport.name === 'Demo' ? 'Demo truck' : 'Connected') : 'Not connected';
     show($('disconnectBtn'), !!transport);
     show($('connectBtn'), !transport);
-    $('scanBtn').disabled = !transport || busy;
-    $('quickBtn').disabled = !transport || busy;
+    $('rescanBtn').disabled = !transport || busy;
+    // Connected: keep the scanner card short
+    ['scannerLinks', 'helpBox'].forEach((id) => show($(id), !transport));
+    renderScreen();
   }
   function err(box, msg) { box.textContent = msg; show(box, !!msg); }
   function renderFindings(ul, findings) {
@@ -152,7 +157,7 @@
   function codesOf(rec) { return rec.assessment.findings.filter((f) => f.code).map((f) => f.code); }
   function bigTicket(rec) {
     const c = codesOf(rec).filter((x) => OBD.fixFor(x).tier === '$$$');
-    const idleBad = rec.idleAssessment && rec.idleAssessment.findings.some((f) => /Misfires on cylinder|Rough idle/.test(f.title) && f.level === 'problem');
+    const idleBad = rec.idleAssessment && rec.idleAssessment.findings.some((f) => /Active misfire|Rough idle/.test(f.title) && f.level === 'problem');
     const total = estTotal(rec);
     return { codes: c, any: c.length > 0 || total > 1000, idleBad, total };
   }
@@ -163,26 +168,40 @@
     if (sub) { const s = document.createElement('span'); s.textContent = sub; el.appendChild(s); }
   }
 
-  /* ---------- modes ---------- */
+  /* ---------- screens: start (connect + recent), vehicle read (pick what to do), a mode's steps ---------- */
+  function renderScreen() {
+    const has = !!current, on = picked();
+    show($('vehicleCard'), has || !!transport || busy);
+    show($('vehInfo'), has);
+    show($('rescanBtn'), !!transport && !busy);
+    $('rescanBtn').textContent = has ? 'Read again' : 'Read vehicle';
+    show($('pickCard'), has && (!on || pickOpen));
+    ['callCard', 'resultCard', 'idleCard', 'driveCard', 'sendCard'].forEach((id) => { if (!on) show($(id), false); });
+    if (on) {
+      show($('resultCard'));
+      show($('idleCard'), !M.basic); show($('driveCard'), !M.basic); show($('sendCard'));
+      show($('estBox'), !M.basic);
+      if (isBid()) show($('callCard'));
+    }
+    $('modeTitle').textContent = on ? M.title : 'Vehicle Scan';
+    document.title = (TEST ? 'TEST ' : '') + (on ? M.title + ' · ' : '') + 'Vehicle Scan';
+    show($('modeCaret'), has);
+    $('modeCaret').textContent = on ? 'Change ▾' : 'Pick ▾';
+    const vl = $('vehLine'); vl.textContent = has ? vehicleLine(current) : ''; show(vl, has && !!vl.textContent);
+    renderHist();
+  }
   function applyMode() {
-    document.body.dataset.mode = M.id;
-    $('modeTitle').textContent = M.title;
-    document.title = M.title + ' \u00b7 Vehicle Scan';
+    document.body.dataset.mode = picked() ? M.id : '';
     document.querySelectorAll('[data-modes]').forEach((el) => show(el, el.dataset.modes.split(/\s+/).includes(M.id)));
     document.querySelectorAll('[data-money]').forEach((el) => show(el, el.dataset.money === M.money));
     document.querySelectorAll('[data-dest]').forEach((el) => show(el, el.dataset.dest === M.destination));
-    document.querySelectorAll('[data-quick]').forEach((el) => show(el, !!M.quick));
     $('stockLabel').textContent = M.stockLabel;
     $('stock').placeholder = M.stockPlaceholder;
-    $('scanHint').textContent = M.scanHint;
-    $('quickHint').textContent = 'Runs the scan, airbag/ABS/transmission check and, if it\u2019s running, a 15-second idle check, then gives you the call. Do the ' + M.driveName.toLowerCase() + ' after.';
-    $('scanBtn').textContent = M.quick ? 'Scan only' : 'Scan truck';
-    $('scanBtn').className = 'btn block' + (M.quick ? '' : ' dark');
     $('driveTitle').textContent = M.driveName;
     $('driveIntro').innerHTML = M.driveIntro;
     $('driveBtn').textContent = 'Start ' + M.driveName.toLowerCase();
     $('driveEnd').textContent = 'End ' + M.driveName.toLowerCase();
-    $('sendTitle').textContent = isMonday() ? 'Estimate & send' : (isBid() ? M.resultName + ' & save' : 'Estimate & save');
+    $('sendTitle').textContent = M.basic ? 'Share' : isMonday() ? 'Estimate & send' : (isBid() ? M.resultName + ' & save' : 'Estimate & save');
     $('estHint').textContent = M.estimateHint;
     $('estName').textContent = M.estimateName;
     if (isBid()) {
@@ -193,34 +212,66 @@
       $('priceHint').innerHTML = M.priceHint;
       $('profitLabel').textContent = M.id === 'trade' ? 'Gross wanted on a trade' : 'Minimum profit after recon';
       $('feesLabel').textContent = M.feesName + ' per vehicle';
-      $('mathNote').textContent = M.resultName + ' = ' + M.priceLabel.toLowerCase() + ' \u2212 ' + M.estimateName.toLowerCase() + ' \u2212 ' + $('profitLabel').textContent.toLowerCase() + ' \u2212 ' + M.feesName.toLowerCase() + '.';
+      $('mathNote').textContent = M.resultName + ' = ' + M.priceLabel.toLowerCase() + ' − ' + M.estimateName.toLowerCase() + ' − ' + $('profitLabel').textContent.toLowerCase() + ' − ' + M.feesName.toLowerCase() + '.';
     }
     show($('scoutBtn'), !!M.scout); show($('scoutCallBtn'), !!M.scout);
     $('phoneNote').textContent = 'Every ' + M.record + ' is saved on this phone under Recent ' + M.records + '. Nothing is sent anywhere unless you share it.';
-    $('histTitle').textContent = 'Recent ' + M.records;
-    $('keepLabel').textContent = 'Keep ' + M.records + ' on this phone';
-    $('clearHist').textContent = 'Clear saved ' + M.records;
-    updateSetup(); renderHist();
+    $('keepLabel').textContent = 'Keep ' + M.records + ' on this phone' + (picked() ? '' : ' (' + M.label + ')');
+    $('clearHist').textContent = picked() ? 'Clear saved ' + M.records : 'Clear all saved';
+    updateSetup(); renderScreen();
   }
-  function setMode(id) {
-    if (!MODES[id]) return;
-    if (busy) { toast('Finish the current check first.'); return; }
-    if (current && current.mode !== id) clearScreen();
-    modeId = id; M = MODES[id]; store.set(LS.mode, id);
-    if (MODES[new URLSearchParams(location.search).get('mode')]) history.replaceState(null, '', location.pathname + location.hash);
-    applyMode();
-  }
-  function openModes() {
-    const box = $('modeList'); box.textContent = '';
+  /* What to do with the vehicle that was just read */
+  let pickOpen = false, nextLane = '';
+  function renderPick() {
+    const box = $('pickList'); box.textContent = '';
     for (const id of MODE_ORDER) {
       const m = MODES[id];
-      const b = document.createElement('button'); b.value = id; if (id === modeId) b.className = 'on';
-      const t = document.createElement('b'); t.textContent = m.label;
+      const b = document.createElement('button'); b.type = 'button'; b.id = 'pick-' + id; if (current && current.mode === id) b.className = 'on';
+      const t2 = document.createElement('b'); t2.textContent = m.label;
       const s = document.createElement('span'); s.textContent = m.blurb;
-      const w = document.createElement('small'); w.textContent = 'Owner: ' + m.who;
-      b.append(t, s, w); box.appendChild(b);
+      b.append(t2, s); b.onclick = () => pick(id);
+      box.appendChild(b);
     }
-    $('modeDlg').showModal();
+  }
+  function openPick() {
+    if (!current) return;
+    if (busy) { toast('Finish the current check first.'); return; }
+    pickOpen = true; renderPick(); renderScreen();
+    $('pickCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function pick(id) {
+    if (!MODES[id] || !current) return;
+    if (busy && current.mode) { toast('Finish the current check first.'); return; }
+    const first = !current.mode;
+    if (!first) keepFields();
+    current.mode = id; M = MODES[id]; store.set(LS.mode, id); pickOpen = false; autoPick = null;
+    if (MODES[new URLSearchParams(location.search).get('mode')]) history.replaceState(null, '', location.pathname + location.hash);
+    // Stock # (last 6 of the VIN) or a typed lane / run #
+    if (!current.stockTyped) current.stock = M.stockFromVin ? OBD.stockFromVin(current.vin) || '' : (M.nextBumpsNumber ? nextLane : '');
+    $('stock').value = current.stock || '';
+    if (first) {
+      current.estimate = { lines: [], removed: [] };
+      $('notes').value = ''; $('salePrice').value = ''; $('payoff').value = '';
+      show($('idleResult'), false); show($('idleLive'), false); show($('driveResult'), false); show($('driveLive'), false); show($('feltBox'), false);
+      show($('driveBtn')); show($('crankLive'), false); show($('crankFindings'), false);
+    }
+    applyMode();
+    renderScan(); prepIdle(); renderEstimate();
+    if (isBid()) { renderBid(); renderCall(); }
+    if (isMonday()) lookupMatch();
+    saveHist();
+    renderScreen();
+    (isBid() ? $('callCard') : $('resultCard')).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  // One line for the top of the screen and the board: 2016 F150 XLT Green 102k 2.7L V6
+  function vehicleLine(rec) {
+    if (!rec) return '';
+    const d = rec.decoded;
+    const parts = d ? [d.year, (d.model || '').replace(/-/g, ''), d.trim] : [rec.vin ? 'VIN …' + rec.vin.slice(-6) : 'Vehicle'];
+    if (rec.color) parts.push(rec.color);
+    if (rec.miles) parts.push(Math.round(rec.miles / 1000) + 'k');
+    if (d && d.engine) parts.push(d.engine);
+    return parts.filter(Boolean).join(' ');
   }
 
   /* ---------- connecting ---------- */
@@ -249,7 +300,7 @@
     let t;
     try {
       if (transport) await disconnect();
-      connLog('--- Connect (' + kind + ', ' + M.id + ' mode) \u00b7 ' + navigator.userAgent.replace(/^.*?\(/, '(').slice(0, 140));
+      connLog('--- Connect (' + kind + ') \u00b7 ' + navigator.userAgent.replace(/^.*?\(/, '(').slice(0, 140));
       if (kind === 'demo') { t = new OBD.DemoTransport(); OBD.DEMO_TRUCK.demoRunning = false; }
       else if (kind === 'ble') {
         if (!OBD.BleTransport.supported()) throw new Error('Bluetooth LE isn\u2019t available in this browser.');
@@ -280,9 +331,10 @@
       connLog('Connected');
       $('helpBox').open = false;
       $('connectMsg').textContent = kind === 'demo'
-        ? 'Demo truck connected. Practice ' + M.records + ' are marked (demo)' + (isMonday() ? ' and never post to monday.com.' : '.')
-        : 'Scanner connected. ' + (M.quick ? 'Tap Quick appraisal.' : 'Tap Scan truck.');
+        ? 'Demo truck connected. Practice scans are marked (demo) and never post to monday.com.'
+        : 'Scanner connected.';
       setPill(); updateSetup();
+      readVehicle();
     } catch (e) {
       connLog('Failed: ' + ((e && e.name) || 'Error') + ': ' + ((e && e.message) || e));
       if (t && t.close && !transport) { try { await t.close(); } catch (x) {} }
@@ -324,60 +376,68 @@
     $('scanBar').style.width = Math.round(((i + 1) / (STEPS.length + 1)) * 100) + '%';
   }
 
-  async function scan() {
+  /* Read the vehicle as soon as the scanner connects: VIN, miles, codes, self-tests, battery, freeze frame,
+     and (Ford family) airbag/ABS/transmission/body modules. Then the person picks what to do with it. */
+  async function readVehicle() {
     if (!elm || busy) return;
-    busy = true; setPill(); err($('scanErr'), ''); show($('autoNote'), false);
-    show($('scanProgress')); ['callCard', 'resultCard', 'idleCard', 'sendCard', 'driveCard', 'idleResult', 'idleLive'].forEach((id) => show($(id), false));
-    $('sendMsg').classList.add('hidden');
+    if (current && current.mode) keepFields();
+    busy = true; current = null; match = null; pickOpen = false; setPill(); err($('scanErr'), ''); show($('autoNote'), false);
+    show($('scanProgress')); $('scanBar').style.width = '0%'; lastStep = 0;
+    $('sendMsg').classList.add('hidden'); $('stock').value = ''; $('miles').value = ''; $('color').value = '';
+    renderScreen();
+    $('vehicleCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     try {
       if (transport.name === 'Demo') OBD.DEMO_TRUCK.demoRunning = false;
       await elm.init(progress);
       const r = await OBD.runScan(elm, progress);
       if ((r.stored || []).length || (r.status && r.status.mil)) { progress('Reading freeze frame'); r.freeze = await OBD.freezeFrame(elm); }
-      if ($('doModules').checked) r.modules = await OBD.moduleScan(elm, makeOf({ vin: r.vin }), progress);
+      r.modules = await OBD.moduleScan(elm, makeOf({ vin: r.vin }), progress);
       $('scanBar').style.width = '100%'; $('scanStep').textContent = 'Done.';
-      // Dash miles typed in win; otherwise use what the truck's computer reports
-      const typed = +$('miles').value || null;
-      const miles = typed || (r.odometerMi ? Math.round(r.odometerMi) : null);
-      const a = buildAssessment(r, typed);
-      const typedStock = $('stock').value.trim().toUpperCase();
+      const miles = r.odometerMi ? Math.round(r.odometerMi) : null;
       current = {
-        id: Date.now().toString(36), at: r.at, mode: M.id, demo: transport.name === 'Demo', tech: settings.name || '',
-        vin: r.vin, stock: typedStock || (M.stockFromVin ? OBD.stockFromVin(r.vin) || '' : ''), miles,
-        scan: r, assessment: a, idle: null, idleAssessment: null, decoded: null, sent: null
+        id: Date.now().toString(36), at: r.at, mode: null, demo: transport.name === 'Demo', tech: settings.name || '',
+        vin: r.vin, stock: OBD.stockFromVin(r.vin) || '', miles, milesSource: miles ? 'truck' : null, color: '',
+        scan: r, assessment: buildAssessment(r, null), idle: null, idleAssessment: null, decoded: null, sent: null
       };
-      if (!typedStock && current.stock) $('stock').value = current.stock;
-      if (!typed && miles) $('miles').value = miles;
-      current.milesSource = typed ? 'dash' : (miles ? 'truck' : null);
       $('autoNote').textContent = [
-        r.vin ? 'VIN ' + r.vin + ' read from the vehicle.' : (M.stockFromVin ? 'Couldn\u2019t read the VIN from this truck. Type the Stock # (last 6 of the VIN).' : 'Couldn\u2019t read the VIN from this vehicle. Note it from the dash or door jamb.'),
-        typed ? '' : (miles ? 'Miles read from the truck\u2019s computer. Glance at the dash; if it\u2019s different, type the dash number.' : 'This truck doesn\u2019t report mileage. Type it from the dash.')
-      ].join(' ');
+        r.vin ? '' : 'Couldn’t read the VIN from this vehicle. Note it from the dash or door jamb.',
+        miles ? 'Miles read from the truck’s computer. If the dash is different, type the dash number.' : 'This vehicle doesn’t report mileage. Type it from the dash.'
+      ].filter(Boolean).join(' ');
       show($('autoNote'));
-      renderScan();
-      saveHist();
+      renderVehicle(); renderPick();
       decodeVin(current);
-      show($('idleCard'));
-      prepIdle();
-      show($('driveCard')); show($('driveResult'), false); show($('driveLive'), false);
-      show($('sendCard'));
-      current.estimate = { lines: [], removed: [] };
-      renderEstimate();
-      $('notes').value = ''; $('salePrice').value = ''; $('payoff').value = '';
-      if (isBid()) { renderBid(); renderCall(); }
-      if (isMonday()) lookupMatch();
+      if (autoPick && MODES[autoPick]) pick(autoPick);
       return true;
     } catch (e) {
       const msg = e && e.message === 'NO_ECU'
-        ? 'The scanner is connected but the truck didn\u2019t answer. Turn the key to ON or start the truck, wait 5 seconds, and tap Scan again.'
+        ? 'The scanner is connected but the truck didn’t answer. Turn the key to ON or start the truck, wait 5 seconds, and tap Read again.'
         : /timeout/.test((e && e.message) || '')
-          ? 'The scanner stopped answering. Unplug it for 5 seconds, plug it back in, reconnect, and scan again.'
-          : 'Scan stopped: ' + ((e && e.message) || 'unknown error');
+          ? 'The scanner stopped answering. Unplug it for 5 seconds, plug it back in, reconnect, and it reads again.'
+          : 'Read stopped: ' + ((e && e.message) || 'unknown error');
       err($('scanErr'), msg);
     } finally {
       busy = false; setPill();
       setTimeout(() => show($('scanProgress'), false), 800);
     }
+  }
+  function renderVehicle() {
+    if (!current) return;
+    const d = current.decoded;
+    $('vehName').textContent = d ? [d.year, titleCase(d.make), d.model, d.trim].filter(Boolean).join(' ')
+      : !current.vin ? 'Vehicle' : current.lookup === 'notfound' ? 'VIN not found in the NHTSA lookup'
+        : current.lookup === 'waiting' || !navigator.onLine ? 'VIN lookup waiting for signal' : 'Looking up the VIN\u2026';
+    const dl = $('vehFacts'); dl.textContent = '';
+    const add = (k, v, wide) => { if (v == null || v === '') return; const x = document.createElement('div'); if (wide) x.className = 'wide';
+      const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; x.append(dt, dd); dl.appendChild(x); };
+    if (d) { add('Engine', d.engine); add('Drive', d.drive); if (d.gears) add('Transmission', d.gears + '-speed' + (d.trans ? ' ' + d.trans.toLowerCase() : '')); if (d.body) add('Body', d.body); }
+    add('VIN', current.vin || 'Not readable', true);
+    add('Computer odometer', current.scan.odometerMi ? fmtMi(current.scan.odometerMi) : null);
+    const codes = (current.scan.stored || []).length + (current.scan.pending || []).length;
+    add('Codes', codes ? codes + ' found' : 'None stored');
+    $('miles').value = current.miles || '';
+    $('stock').value = current.stock || '';
+    $('color').value = current.color || '';
+    const vl = $('vehLine'); vl.textContent = vehicleLine(current); show(vl, !!vl.textContent);
   }
 
   function renderScan() {
@@ -388,9 +448,6 @@
     const dl = $('readings'); dl.textContent = '';
     const add = (k, v, wide) => { if (v == null || v === '') return; const d = document.createElement('div'); if (wide) d.className = 'wide';
       const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; d.append(dt, dd); dl.appendChild(d); };
-    add('VIN', r.vin || 'Not readable', true);
-    if (current.decoded) add('Vehicle', current.decoded.label, true);
-    add(M.stockLabel, current.stock || '\u2014');
     add('Battery', r.voltage != null ? r.voltage.toFixed(1) + ' V' : null);
     add('Engine', r.engineRunning == null ? null : r.engineRunning ? 'Running, ' + Math.round(r.rpm) + ' RPM' : 'Off (key on)');
     add('Coolant', r.coolantF != null ? r.coolantF + '\u00b0F' : null);
@@ -416,8 +473,6 @@
       t.textContent = current.recalls ? current.recalls.count + ' recall' + (current.recalls.count === 1 ? '' : 's') + ' on file for this year/model. ' : '';
       n.append(t, a2); extra.appendChild(n);
     }
-    show($('resultCard'));
-    $('resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function decodeVin(rec) {
@@ -425,20 +480,23 @@
     try {
       const res = await fetch('https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/' + rec.vin + '?format=json');
       const j = await res.json(); const v = j.Results && j.Results[0];
-      if (!v || !v.ModelYear) return;
+      if (!v || !v.ModelYear) { rec.lookup = 'notfound'; if (rec === current) renderVehicle(); return; }
       const eng = [v.DisplacementL ? (+v.DisplacementL).toFixed(1) + 'L' : '', v.EngineCylinders ? 'V' + v.EngineCylinders : '', /diesel/i.test(v.FuelTypePrimary || '') ? 'diesel' : ''].filter(Boolean).join(' ');
       rec.decoded = { year: v.ModelYear, make: v.Make, model: v.Model, trim: v.Trim || v.Series || '', engine: eng, drive: v.DriveType || '',
+        gears: +v.TransmissionSpeeds || null, trans: v.TransmissionStyle || '', body: v.BodyClass || '',
         label: [v.ModelYear, titleCase(v.Make), v.Model, v.Trim].filter(Boolean).join(' ') + (eng ? ' \u00b7 ' + eng : '') };
-      if (rec === current) { renderScan(); renderEstimate(); suggestName(); if (isBid()) { renderBid(); renderCall(); } }
+      if (rec === current) { renderVehicle(); if (picked()) { renderScan(); renderEstimate(); suggestName(); if (isBid()) { renderBid(); renderCall(); } } renderScreen(); }
       updateHist(rec);
       try {
         const rr = await fetch('https://api.nhtsa.gov/recalls/recallsByVehicle?make=' + encodeURIComponent(v.Make) + '&model=' + encodeURIComponent(v.Model) + '&modelYear=' + v.ModelYear);
         const rj = await rr.json();
         rec.recalls = { count: (rj.results || rj.Results || []).length, items: (rj.results || rj.Results || []).slice(0, 8).map((x) => ({ id: x.NHTSACampaignNumber, part: x.Component })) };
-        if (rec === current) renderScan();
+        if (rec === current && picked()) renderScan();
         updateHist(rec);
       } catch (e) {}
-    } catch (e) { /* offline or NHTSA down: retried when signal comes back */ }
+    } catch (e) { /* offline or NHTSA down: retried when signal comes back */
+      if (!rec.decoded) { rec.lookup = 'waiting'; if (rec === current) renderVehicle(); }
+    }
   }
 
   /* ---------- battery, idle ---------- */
@@ -463,14 +521,16 @@
       busy = false; setPill(); $('crankBtn').disabled = false; $('crankCue').textContent = '';
     }
   }
+  const idleSecs = () => M.quick ? 15 : 30;   // Auction and Trade: a quick 15-second idle
   function prepIdle() {
     const running = current.scan.engineRunning, demo = current.demo;
     show($('crankBox'), !current.crankAssessment ? !running : true);
     if (!current.crankAssessment) { show($('crankLive'), false); show($('crankFindings'), false); }
+    const secs = idleSecs();
     $('idleIntro').textContent = running || demo
-      ? 'Truck warmed up, in park, A/C and lights off. Takes 30 seconds; don\u2019t touch the gas.'
-      : 'Start the engine and let it warm up, then run this. It watches the idle for 30 seconds and reads the engine\u2019s own misfire counters.';
-    $('idleBtn').textContent = demo && !running ? 'Run idle check (demo starts the engine)' : 'Run 30-second idle check';
+      ? 'Truck warmed up, in park, A/C and lights off. Takes ' + secs + ' seconds; don\u2019t touch the gas.'
+      : 'Start the engine and let it warm up, then run this. It watches the idle for ' + secs + ' seconds and reads the engine\u2019s own misfire counters.';
+    $('idleBtn').textContent = 'Run ' + secs + '-second idle check' + (demo && !running ? ' (demo starts the engine)' : '');
   }
   async function runIdle(seconds) {
     seconds = typeof seconds === 'number' ? seconds : 30;
@@ -486,7 +546,7 @@
         onSample: (rpm, frac) => { pts.push(rpm); $('rpmNow').textContent = Math.round(rpm); $('idleBar').style.width = Math.min(100, frac * 100) + '%'; drawSpark(pts); }
       });
       $('idleBar').style.width = '100%';
-      const a = OBD.assessIdle(r);
+      const a = OBD.assessIdle(r, { codes: [...(current.scan.stored || []), ...(current.scan.pending || [])] });
       current.idle = r; current.idleAssessment = a;
       renderVerdict($('idleVerdict'), a.overall, a.stats ? 'Average idle ' + a.stats.mean + ' RPM over ' + a.stats.samples + ' readings' : '');
       renderFindings($('idleFindings'), a.findings);
@@ -516,7 +576,22 @@
   }
 
   /* ---------- drive ---------- */
-  let driveAbort = null;
+  let driveAbort = null, lastDrive = null;
+  // (Re)judge the last drive: the VIN tells us the gear count, and the driver says whether it felt like it slipped
+  function assessDriveNow() {
+    if (!current || !lastDrive || lastDrive.id !== current.id) return;
+    const { r, aft } = lastDrive;
+    const a = OBD.assessDrive(r, { stored: current.scan.stored, pending: current.scan.pending }, aft,
+      { lane: !!M.lane, gears: current.decoded && current.decoded.gears, felt: current.driveFelt });
+    current.drive = { start: r.start, end: r.end, stats: a.stats, lane: !!M.lane, felt: current.driveFelt || null }; current.driveAssessment = a;
+    renderVerdict($('driveVerdict'), a.overall, a.stats ? a.stats.minutes + ' min, ' + a.stats.miles + ' mi, top ' + a.stats.maxMph + ' mph' : '');
+    renderFindings($('driveFindings'), a.findings); show($('driveResult'));
+    const flare = a.findings.some((f) => f.flare);
+    show($('feltBox'), flare);
+    $('feltYes').className = 'btn' + (current.driveFelt === 'yes' ? ' dark' : ''); $('feltNo').className = 'btn' + (current.driveFelt === 'no' ? ' dark' : '');
+    after();
+  }
+  function felt(ans) { if (!current) return; current.driveFelt = ans; assessDriveNow(); }
   async function startDrive() {
     if (!elm || busy || !current) return;
     busy = true; setPill(); show($('driveBtn'), false); show($('driveLive')); show($('driveResult'), false);
@@ -535,11 +610,9 @@
       if (current.demo) OBD.DEMO_TRUCK.driveAt = 0;
       $('driveSoFar').textContent = 'Checking for new codes\u2026';
       const aft = await OBD.afterDrive(elm);
-      const a = OBD.assessDrive(r, { stored: current.scan.stored, pending: current.scan.pending }, aft, { lane: !!M.lane });
-      current.drive = { start: r.start, end: r.end, stats: a.stats, lane: !!M.lane }; current.driveAssessment = a;
-      renderVerdict($('driveVerdict'), a.overall, a.stats ? a.stats.minutes + ' min, ' + a.stats.miles + ' mi, top ' + a.stats.maxMph + ' mph' : '');
-      renderFindings($('driveFindings'), a.findings); show($('driveResult'));
-      after();
+      current.driveFelt = null;
+      lastDrive = { id: current.id, r, aft };
+      assessDriveNow();
     } catch (e) {
       err($('scanErr'), M.driveName + ' stopped: ' + ((e && e.message) || 'unknown error'));
     } finally {
@@ -559,18 +632,20 @@
       if (f.moduleCode && f.level !== 'good') { const fx = OBD.moduleFix(f.module); add('mod:' + f.module + ':' + f.moduleCode, f.module + ' ' + f.moduleCode, fx.range, fx.parts.join(', ')); }
     }
     const misfireCode = [...codes].some((c) => /^P03/.test(c));
-    if (rec.crankAssessment && rec.crankAssessment.findings.some((f) => /battery/i.test(f.title) && f.level !== 'good')) add('battery', 'Battery', [180, 300], 'battery');
-    else if (a.findings.some((f) => /^Battery low/.test(f.title))) add('battery', 'Battery', [180, 300], 'battery');
+    // What it costs us, not retail: Walmart or a used battery, cheap parts, our labor
+    if (rec.crankAssessment && rec.crankAssessment.findings.some((f) => /battery/i.test(f.title) && f.level !== 'good')) add('battery', 'Battery', [50, 100], 'Walmart or used');
+    else if (a.findings.some((f) => /^Battery low/.test(f.title))) add('battery', 'Battery', [50, 100], 'Walmart or used');
     if (rec.idleAssessment) for (const f of rec.idleAssessment.findings) {
       if (f.level === 'good' || f.level === 'info') continue;
-      if (/Misfire|Rough|unsteady/i.test(f.title) && !misfireCode) add('tuneup', 'Tune-up: plugs and coils', [250, 700], 'spark plugs, ignition coil');
-      if (/lean/i.test(f.title) && !codes.has('P0171') && !codes.has('P0174')) add('vacuum', 'Vacuum leak / MAF cleaning', [50, 300]);
+      // Only an active misfire or a rough idle earns plugs and coils; occasional misfires are normal
+      if (f.level === 'problem' && /Active misfire|Rough idle/i.test(f.title) && !misfireCode) add('tuneup', 'Plugs and coils', /Active misfire on cylinder \d+$/.test(f.title) ? [30, 120] : [100, 350], 'spark plugs, ignition coil');
+      if (/lean/i.test(f.title) && !codes.has('P0171') && !codes.has('P0174')) add('vacuum', 'Vacuum leak / MAF cleaning', [20, 150]);
     }
     if (rec.driveAssessment) for (const f of rec.driveAssessment.findings) {
       if (f.level !== 'problem') continue;
-      if (/flared/i.test(f.title)) add('trans', 'Transmission: shop diagnosis/repair', [300, 4500], 'get a transmission shop quote');
-      if (/wavering/i.test(f.title)) add('tcc', 'Torque converter shudder', [300, 3000], 'fluid service first');
-      if (/Ran hot/i.test(f.title)) add('cooling', 'Cooling system', [200, 800], 'thermostat, coolant');
+      if (f.flare) add('trans', 'Transmission: fluid service, then shop diagnosis', [150, 3500], 'fluid and adaptive relearn first; used transmission if it\u2019s internal');
+      if (/wavering/i.test(f.title)) add('tcc', 'Torque converter shudder', [150, 2000], 'fluid service first');
+      if (/Ran hot/i.test(f.title)) add('cooling', 'Cooling system', [60, 300], 'thermostat, coolant');
       if (f.code && !codes.has(f.code)) { const fx = OBD.fixFor(f.code); add('code:' + f.code, f.code + ' ' + OBD.describeCode(f.code), fx.range, fx.parts.join(', ')); }
     }
     return L;
@@ -587,7 +662,7 @@
     for (const l of lines) {
       const li = document.createElement('li');
       const lab = document.createElement('span'); lab.textContent = l.label;
-      const sm = document.createElement('small'); sm.textContent = l.manual ? 'Added by hand' : 'Typical $' + l.range[0].toLocaleString() + '\u2013$' + l.range[1].toLocaleString() + (l.sub ? ' \u00b7 ' + l.sub : ''); lab.appendChild(sm);
+      const sm = document.createElement('small'); sm.textContent = l.manual ? 'Added by hand' : 'Our cost $' + l.range[0].toLocaleString() + '\u2013$' + l.range[1].toLocaleString() + (l.sub ? ' \u00b7 ' + l.sub : ''); lab.appendChild(sm);
       const inp = document.createElement('input'); inp.type = 'number'; inp.inputMode = 'numeric'; inp.value = l.amount; inp.setAttribute('aria-label', 'Amount for ' + l.label);
       inp.oninput = () => { l.amount = Math.max(0, +inp.value || 0); totals(); };
       inp.onchange = () => saveHist();
@@ -642,7 +717,7 @@
     const ia = rec.idleAssessment;
     if (ia) ia.findings.forEach((f) => { if (f.level === 'problem' && /Misfire|Rough|lean|rich/i.test(f.title)) add('soft', f.title, ''); });
     const da = rec.driveAssessment;
-    if (da) da.findings.forEach((f) => { if (f.level === 'problem') add(/flared|wavering/i.test(f.title) ? 'hard' : 'soft', f.title, ''); });
+    if (da) da.findings.forEach((f) => { if (f.level === 'problem') add(f.flare || /wavering/i.test(f.title) ? 'hard' : 'soft', f.title, ''); });
     if (rec.crankAssessment) rec.crankAssessment.findings.forEach((f) => { if (f.level === 'problem') add('soft', f.title, ''); });
     F.sort((a, b) => (a.sev === 'hard' ? 0 : 1) - (b.sev === 'hard' ? 0 : 1));
     return F;
@@ -727,43 +802,42 @@
     history.replaceState(null, '', location.pathname + location.search);
     if (!rec) { toast('Got a sale price from SCOUT, but no matching appraisal on this phone.'); return; }
     rec.salePrice = sale;
-    if (rec.mode && rec.mode !== M.id) setMode(rec.mode);
-    current = rec;
+    loadRecord(rec);
     updateHist(rec);
-    if (current.scan) { $('salePrice').value = sale; renderBid(); renderCall(); show($('callCard')); }
+    if (current.scan) { $('salePrice').value = sale; renderBid(); renderCall(); }
     toast('Expected sale price ' + money(sale) + ' from SCOUT.');
   }
 
-  /* ---------- quick appraisal and next vehicle ---------- */
-  async function quick() {
-    if (!elm || busy) return;
-    $('doModules').checked = true;
-    const ok = await scan();
-    if (!ok || !current) return;
-    if (current.scan.engineRunning || current.demo) {
-      $('idleCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      await runIdle(15);
-    }
-    renderCall();
-    $('callCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-  function keepFields() { if (current) { current.notes = $('notes').value.trim(); current.salePrice = +$('salePrice').value || current.salePrice || null; current.payoff = +$('payoff').value || null; saveHist(current); } }
+  /* ---------- next vehicle, reopening a saved one ---------- */
+  function keepFields() { if (current && current.mode) { current.notes = $('notes').value.trim(); current.salePrice = +$('salePrice').value || current.salePrice || null; current.payoff = +$('payoff').value || null; saveHist(current); } }
   function clearScreen() {
     keepFields();
-    current = null; match = null;
-    ['callCard', 'resultCard', 'idleCard', 'driveCard', 'sendCard', 'autoNote', 'idleResult', 'idleLive', 'driveResult', 'driveLive', 'crankLive', 'crankFindings', 'scoutHint'].forEach((id) => show($(id), false));
+    current = null; match = null; pickOpen = false; lastDrive = null;
+    ['autoNote', 'idleResult', 'idleLive', 'driveResult', 'driveLive', 'crankLive', 'crankFindings', 'scoutHint', 'feltBox'].forEach((id) => show($(id), false));
     show($('driveBtn')); $('driveBtn').textContent = 'Start ' + M.driveName.toLowerCase();
-    $('miles').value = ''; $('notes').value = ''; $('salePrice').value = ''; $('payoff').value = ''; $('sendMsg').classList.add('hidden'); awaitingScout = false;
+    $('miles').value = ''; $('stock').value = ''; $('color').value = ''; $('notes').value = ''; $('salePrice').value = ''; $('payoff').value = ''; $('sendMsg').classList.add('hidden'); awaitingScout = false;
     err($('scanErr'), '');
     if (transport && transport.name === 'Demo') { OBD.DEMO_TRUCK.demoRunning = false; OBD.DEMO_TRUCK.driveAt = 0; }
+    applyMode();
   }
   function nextVehicle() {
     if (busy) return;
-    const lane = $('stock').value.trim();
+    const lane = current && current.stock;
+    nextLane = M.nextBumpsNumber && /^\d+$/.test(lane || '') ? String(+lane + 1) : '';
     clearScreen();
-    $('stock').value = M.nextBumpsNumber && /^\d+$/.test(lane) ? String(+lane + 1) : '';
-    $('vehicleCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    toast(transport ? 'Ready. Move the scanner to the next vehicle and tap ' + (M.quick ? 'Quick appraisal.' : 'Scan truck.') : 'Ready for the next vehicle.');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast(transport ? 'Ready. Move the scanner to the next vehicle and tap Read vehicle (or reconnect if it dropped).' : 'Ready for the next vehicle. Plug in the scanner and connect.');
+  }
+  // Put a saved record back on screen (used by the SCOUT link back)
+  function loadRecord(rec) {
+    if (busy) return;
+    keepFields();
+    current = rec; M = modeOf(rec); match = null; pickOpen = false; lastDrive = null;
+    applyMode(); renderVehicle(); renderScan(); prepIdle(); renderEstimate();
+    $('notes').value = rec.notes || ''; $('salePrice').value = rec.salePrice || ''; $('payoff').value = rec.payoff || '';
+    if (isBid()) { renderBid(); renderCall(); }
+    if (isMonday() && !rec.sent) lookupMatch();
+    renderScreen();
   }
 
   /* ---------- lookups that waited for signal ---------- */
@@ -801,11 +875,12 @@
       if (call.mb) L.push(m.resultName + ' math: sale ' + money(call.mb.sale) + ' \u2212 recon ' + money(call.mb.recon) + ' \u2212 ' + (m.id === 'trade' ? 'gross ' : 'profit ') + money(call.mb.profit) + (call.mb.fees ? ' \u2212 ' + esc(m.feesName.toLowerCase()) + ' ' + money(call.mb.fees) : '') + ' = ' + (call.mb.bid > 0 ? money(call.mb.bid) : 'none') +
         (call.mb.equity != null ? '. Payoff ' + money(call.mb.payoff) + ', ' + (call.mb.equity >= 0 ? 'equity ' + money(call.mb.equity) : 'upside down ' + money(-call.mb.equity)) : ''));
     }
-    L.push('<b>' + (cust ? 'Vehicle health check' : m.id === 'checkin' ? 'OBD2 check-in scan' : 'Scan health') + ': ' + esc(LEVEL_WORD[a.overall]) + '</b>');
+    L.push('<b>' + (cust ? 'Vehicle health check' : m.id === 'checkin' ? 'OBD2 check-in scan' : m.basic ? 'Code read' : 'Scan health') + ': ' + esc(LEVEL_WORD[a.overall]) + '</b>');
     L.push(esc(new Date(rec.at).toLocaleString()) + (rec.tech ? ' \u00b7 ' + esc(rec.tech) : ''));
     const info = [];
     if (rec.vin) info.push('VIN ' + esc(rec.vin));
     if (rec.decoded) info.push(esc(rec.decoded.label));
+    if (rec.color) info.push(esc(rec.color));
     if (rec.miles) info.push((rec.milesSource === 'truck' ? 'Truck computer ' : 'Dash ') + (+rec.miles).toLocaleString() + ' mi');
     if (info.length) L.push(info.join(' \u00b7 '));
     const bt = bigTicket(rec);
@@ -813,11 +888,13 @@
     L.push('<ul>' + a.findings.map((f) => li(f, rec, !cust)).join('') + '</ul>');
     if (rec.crankAssessment) L.push('<b>Cranking test:</b><ul>' + rec.crankAssessment.findings.map((f) => li(f, rec, !cust)).join('') + '</ul>');
     const dn = rec.drive && rec.drive.lane ? 'Lane drive' : 'Test drive';
+    const basic = !!m.basic;
     if (rec.driveAssessment) {
       const da = rec.driveAssessment;
       L.push('<b>' + dn + ': ' + esc(LEVEL_WORD[da.overall]) + '</b>' + (da.stats ? ' (' + da.stats.minutes + ' min, ' + da.stats.miles + ' mi, top ' + da.stats.maxMph + ' mph)' : ''));
       L.push('<ul>' + da.findings.map((f) => li(f, rec, !cust)).join('') + '</ul>');
-    } else if (!cust) L.push(m.driveName + ' not recorded in the app.');
+      if (rec.drive && rec.drive.felt) L.push('Driver felt slipping on shifts: ' + (rec.drive.felt === 'yes' ? 'yes' : 'no'));
+    } else if (!cust && !basic) L.push(m.driveName + ' not recorded in the app.');
     if (rec.estimate && rec.estimate.lines.length && !cust) {
       L.push('<b>' + esc(m.estimateName) + ': $' + estTotal(rec).toLocaleString() + '</b><ul>' + rec.estimate.lines.map((l) => '<li>' + esc(l.label) + ': $' + (+l.amount || 0).toLocaleString() + '</li>').join('') + '</ul>');
     }
@@ -826,7 +903,7 @@
       L.push('<b>Idle &amp; misfire check: ' + esc(LEVEL_WORD[ia.overall]) + '</b>' + (ia.stats ? ' (avg ' + ia.stats.mean + ' RPM, range ' + ia.stats.min + '\u2013' + ia.stats.max + ')' : ''));
       L.push('<ul>' + ia.findings.map((f) => li(f, rec, !cust)).join('') + '</ul>');
       if (rec.idle && rec.idle.misfires && !cust) L.push('Misfire counters by cylinder: ' + rec.idle.misfires.map((x) => x.cyl + ': ' + Math.max(x.avg10 || 0, x.lastTrip || 0)).join(', '));
-    } else if (!cust) L.push('Idle check not run.');
+    } else if (!cust && !basic) L.push('Idle check not run.');
     const extra = [];
     if (s.distSinceClearMi != null) extra.push('Since codes cleared: ' + s.distSinceClearMi + ' mi' + (s.warmupsSinceClear != null ? ', ' + s.warmupsSinceClear + ' warm-ups' : ''));
     if (s.status && s.status.monitors.length) extra.push('Self-tests not finished: ' + (s.status.monitors.filter((x) => !x.complete).map((x) => x.name).join(', ') || 'none'));
@@ -847,7 +924,7 @@
     opts = opts || {};
     if (rec === current) keepFields(); else saveHist(rec);
     const m = modeOf(rec);
-    const what = opts.customer ? 'Vehicle health check' : (m.id === 'trade' ? 'Trade appraisal' : m.id === 'auction' ? 'Appraisal' : 'Check-in scan');
+    const what = opts.customer ? 'Vehicle health check' : (m.id === 'trade' ? 'Trade appraisal' : m.id === 'auction' ? 'Appraisal' : m.basic ? 'Code read' : 'Check-in scan');
     const title = what + ': ' + ((rec.decoded && rec.decoded.label) || rec.vin || 'vehicle') + (rec.stock && !opts.customer ? ' (' + m.stockShort + ' ' + rec.stock + ')' : '');
     const text = title + '\n\n' + shareText(rec, opts);
     const msg = $('sendMsg');
@@ -929,6 +1006,7 @@
     if (!isMonday() || sendMode !== 'new' || !current || $('newName').value) return;
     const d = current.decoded; const miles = current.miles;
     const parts = d ? [d.year, (d.model || '').replace(/-/g, ''), d.trim] : [];
+    if (current.color) parts.push(current.color);
     if (miles) parts.push(Math.round(miles / 1000) + 'k');
     $('newName').value = parts.filter(Boolean).join(' ');
   }
@@ -1058,7 +1136,7 @@
     return h.filter((r) => (current && r.id === current.id) || now - new Date(r.at).getTime() < per(r.mode || 'checkin').keepDays * 86400000).slice(0, 500);
   }
   function saveHist(rec) {
-    rec = rec || current; if (!rec) return;
+    rec = rec || current; if (!rec || !rec.mode) return;
     const h = store.get(LS.hist, []).filter((x) => x.id !== rec.id);
     h.unshift(rec);
     store.set(LS.hist, keepRecent(h));
@@ -1068,34 +1146,60 @@
   function updateHist(rec) {
     if (!rec) return;
     const h = store.get(LS.hist, []); const i = h.findIndex((x) => x.id === rec.id);
-    if (i >= 0) { h[i] = rec; store.set(LS.hist, h); renderHist(); } else saveHist(rec);
+    if (i >= 0) { h[i] = rec; store.set(LS.hist, h); renderHist(); } else if (rec.mode) saveHist(rec);
   }
   const daysWord = (d) => d === 1 ? '1 day' : d + ' days';
+  // Start screen: every saved scan, newest first. Inside a mode: that mode's only. Tap one for its summary.
   function renderHist() {
-    const h = store.get(LS.hist, []).filter((r) => (r.mode || 'checkin') === M.id);
-    $('keepNote').textContent = 'Kept on this phone for ' + daysWord(per().keepDays) + ', then cleared automatically. Change it in Settings.';
+    const on = picked();
+    const h = store.get(LS.hist, []).filter((r) => r.mode && (!on || r.mode === M.id));
+    $('histTitle').textContent = on ? 'Recent ' + M.records : 'Recent scans';
+    $('keepNote').textContent = on ? 'Kept on this phone for ' + daysWord(per().keepDays) + ', then cleared automatically. Change it in Settings.' : 'Tap one to see its summary. Each kind is kept on this phone for its own number of days.';
     show($('histCard'), h.length > 0);
-    const ul = $('hist'); ul.textContent = '';
-    for (const rec of h.slice(0, 60)) {
-      const l = document.createElement('li');
-      const left = document.createElement('span');
-      const dot = document.createElement('i'); dot.className = 'dot ' + ((rec.call && rec.call.level) || rec.assessment.overall);
-      left.appendChild(dot);
-      let label;
-      if (M.id === 'checkin') label = (rec.sent ? rec.sent.name : (rec.stock || rec.vin || 'No VIN'));
-      else {
-        label = ((rec.decoded && rec.decoded.label) || rec.vin || 'No VIN') + (rec.stock ? ' \u00b7 ' + M.stockShort + ' ' + rec.stock : '') +
-          (rec.call ? ' \u00b7 ' + rec.call.word + (rec.call.bid != null ? ' \u00b7 ' + (rec.call.bid > 0 ? money(rec.call.bid) : 'none') : '') : '');
+    // Rows are updated in place (keyed by scan id), so a tap isn't lost when a field saves and the list refreshes
+    const ul = $('hist'), old = new Map([...ul.children].map((li) => [li.dataset.id, li])), keep = new Set();
+    h.slice(0, 60).forEach((rec, idx) => {
+      const m = modeOf(rec);
+      let l = old.get(rec.id);
+      if (!l) {
+        l = document.createElement('li'); l.dataset.id = rec.id;
+        const left = document.createElement('button'); left.type = 'button'; left.className = 'histopen';
+        left.append(document.createElement('i'), document.createElement('span'));
+        const act = document.createElement('button'); act.className = 'btn histact'; act.style.minHeight = '40px';
+        l.append(left, act);
       }
-      const pend = rec.vin && !rec.decoded && !rec.demo && M.id !== 'checkin' ? ' \u00b7 lookup waiting for signal' : '';
-      left.appendChild(document.createTextNode(label + ' \u00b7 ' + new Date(rec.at).toLocaleDateString() + (rec.demo ? ' (demo)' : '') + pend));
-      l.appendChild(left);
-      if (M.id === 'checkin') {
-        if (rec.sent) { const a = document.createElement('a'); a.href = rec.sent.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Open'; a.style.color = 'inherit'; l.appendChild(a); }
-        else if (!rec.demo) { const b = document.createElement('button'); b.className = 'btn'; b.style.minHeight = '40px'; b.textContent = 'Send'; b.onclick = () => send(rec, { fromHistory: true }); l.appendChild(b); }
-      } else { const b = document.createElement('button'); b.className = 'btn'; b.style.minHeight = '40px'; b.textContent = 'Share'; b.onclick = () => share(rec); l.appendChild(b); }
-      ul.appendChild(l);
-    }
+      keep.add(rec.id);
+      const left = l.querySelector('.histopen'), act = l.querySelector('.histact');
+      left.querySelector('i').className = 'dot ' + ((rec.call && rec.call.level) || rec.assessment.overall);
+      let label = vehicleLine(rec) || rec.vin || 'No VIN';
+      if (rec.stock && !m.stockFromVin) label += ' \u00b7 ' + m.stockShort + ' ' + rec.stock;
+      if (rec.call) label += ' \u00b7 ' + rec.call.word + (rec.call.bid != null ? ' \u00b7 ' + (rec.call.bid > 0 ? money(rec.call.bid) : 'none') : '');
+      const pend = rec.vin && !rec.decoded && !rec.demo ? ' \u00b7 lookup waiting for signal' : '';
+      const sent = m.id === 'checkin' ? (rec.sent ? ' \u00b7 sent' : rec.demo ? '' : ' \u00b7 not sent') : '';
+      left.querySelector('span').textContent = (on ? '' : m.label + ' \u00b7 ') + label + ' \u00b7 ' + new Date(rec.at).toLocaleDateString() + (rec.demo ? ' (demo)' : '') + sent + pend;
+      left.onclick = () => openSummary(rec);
+      const canSend = m.id === 'checkin' && !rec.sent && !rec.demo;
+      act.textContent = canSend ? 'Send' : 'Open';
+      act.onclick = canSend ? () => send(rec, { fromHistory: true }) : () => openSummary(rec);
+      if (ul.children[idx] !== l) ul.insertBefore(l, ul.children[idx] || null);   // move only when the order changed
+    });
+    for (const [id, li] of old) if (!keep.has(id)) li.remove();
+  }
+  /* Summary page for a saved scan: the same report that's shared or sent to monday.com */
+  let sumRec = null;
+  function openSummary(rec) {
+    sumRec = rec; const m = modeOf(rec);
+    $('sumTitle').textContent = vehicleLine(rec) || rec.vin || 'Vehicle';
+    $('sumMeta').textContent = m.label + ' · ' + new Date(rec.at).toLocaleString() + (rec.demo ? ' · demo' : '') + (rec.stock ? ' · ' + m.stockLabel + ' ' + rec.stock : '');
+    $('sumBody').innerHTML = reportLines(rec);
+    $('sumBody').querySelectorAll('a').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
+    const mon = $('sumMonday');
+    show(mon, !!(rec.sent && rec.sent.url)); if (rec.sent) mon.href = rec.sent.url;
+    show($('sumSend'), m.id === 'checkin' && !rec.sent && !rec.demo);
+    show($('sumCust'), m.id === 'trade');
+    $('sumMsg').textContent = ''; show($('sumMsg'), false);
+    if (!$('sumDlg').open) $('sumDlg').showModal();
+    $('sumDlg').scrollTop = 0;
   }
 
   /* ---------- settings ---------- */
@@ -1138,9 +1242,18 @@
   };
   $('logClear').onclick = () => { clog.length = 0; $('connLog').textContent = ''; };
   $('disconnectBtn').onclick = disconnect;
-  $('scanBtn').onclick = scan;
-  $('quickBtn').onclick = quick;
+  $('rescanBtn').onclick = readVehicle;
   $('nextBtn').onclick = nextVehicle; $('nextTop').onclick = nextVehicle;
+  $('feltYes').onclick = () => felt('yes'); $('feltNo').onclick = () => felt('no');
+  $('sumClose').onclick = () => $('sumDlg').close();
+  $('sumShare').onclick = () => { if (sumRec) share(sumRec); };
+  $('sumCust').onclick = () => { if (sumRec) share(sumRec, { customer: true }); };
+  $('sumSend').onclick = async () => {
+    if (!sumRec) return;
+    await send(sumRec, { fromHistory: true });
+    $('sumMsg').textContent = $('sendMsg').textContent; show($('sumMsg'), true);
+    if (sumRec.sent) { show($('sumSend'), false); show($('sumMonday'), true); $('sumMonday').href = sumRec.sent.url; }
+  };
   $('scoutBtn').onclick = lookupScout;
   $('scoutCallBtn').onclick = lookupScout;
   document.addEventListener('visibilitychange', backFromScout);
@@ -1151,7 +1264,7 @@
   $('payoff').addEventListener('change', () => { if (current) updateHist(current); });
   window.addEventListener('online', retryPending);
   setInterval(retryPending, 60000);
-  $('idleBtn').onclick = () => runIdle(30);
+  $('idleBtn').onclick = () => runIdle(idleSecs());
   $('crankBtn').onclick = runCrank;
   $('driveBtn').onclick = startDrive;
   $('driveEnd').onclick = () => { if (driveAbort) driveAbort.abort(); };
@@ -1164,22 +1277,21 @@
     const q = $('searchQ').value.trim(); if (!q) return;
     try { listResults(await searchByName(q)); } catch (e) { listResults([]); }
   };
-  $('miles').addEventListener('change', () => { if (current) { current.miles = +$('miles').value || null; current.milesSource = 'dash'; renderScan(); renderCall(); updateHist(current); } });
-  $('stock').addEventListener('change', () => { if (current) { current.stock = $('stock').value.trim().toUpperCase(); $('stock').value = current.stock; saveHist(); if (isMonday()) lookupMatch(); } });
+  $('miles').addEventListener('change', () => { if (current) { current.miles = +$('miles').value || null; current.milesSource = 'dash'; renderVehicle(); if (picked()) { renderScan(); renderCall(); suggestName(); updateHist(current); } } });
+  $('stock').addEventListener('change', () => { if (current) { current.stock = $('stock').value.trim().toUpperCase(); current.stockTyped = true; $('stock').value = current.stock; saveHist(); if (picked() && isMonday()) lookupMatch(); } });
+  $('color').addEventListener('change', () => { if (current) { current.color = titleCase($('color').value.trim()); $('color').value = current.color; renderVehicle(); if (picked()) { if (isBid()) renderCall(); updateHist(current); } renderScreen(); } });
   $('settingsBtn').onclick = openSettings;
   $('settings').addEventListener('close', saveSettings);
   $('testBtn').onclick = testToken;
-  $('modeBtn').onclick = openModes;
-  $('changeMode').onclick = () => { $('settings').close(); openModes(); };
-  $('modeDlg').addEventListener('close', () => { const v = $('modeDlg').returnValue; if (v && MODES[v]) setMode(v); else if (!modeId) setMode(M.id); });
+  $('modeBtn').onclick = openPick;
   $('clearHist').onclick = () => {
-    if (!confirm('Delete the ' + M.records + ' saved on this phone?' + (isMonday() ? ' Anything already sent stays in monday.com.' : ''))) return;
-    store.set(LS.hist, store.get(LS.hist, []).filter((r) => (r.mode || 'checkin') !== M.id)); renderHist();
+    const on = picked();
+    if (!confirm('Delete ' + (on ? 'the ' + M.records : 'all scans') + ' saved on this phone? Anything already sent stays in monday.com.')) return;
+    store.set(LS.hist, on ? store.get(LS.hist, []).filter((r) => r.mode !== M.id) : []); renderHist();
   };
 
   const sm = supportMsg(); if (sm) err($('connectErr'), sm);
   if (!('bluetooth' in navigator)) show($('bleBtn'), false);
   purgeOld(); setPill(); applyMode(); takeFromLink(); setTimeout(retryPending, 3000);
-  if (!modeId) openModes();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

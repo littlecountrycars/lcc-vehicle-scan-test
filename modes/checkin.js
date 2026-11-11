@@ -25,7 +25,7 @@
   // Money
   money: 'estimate',             // Day-1 estimate only, no bid/offer math
   estimateName: 'Day-1 estimate',
-  estimateHint: 'Prefilled from typical costs for each finding (parts + labor). Adjust to your real numbers, remove what you won’t do, add anything else.',
+  estimateHint: 'Prefilled with what each fix usually costs us: parts at our price (Walmart, used, RockAuto, Amazon) plus our labor. Adjust to your real numbers, remove what you won’t do, add anything else.',
   overThousand: 'Over $1,000 (or a likely big-ticket repair). Per the recon SOP, Jonathan decides fix, wholesale or sell as-is before any work starts; sending flags him in monday.com.',
 
   // Where results go

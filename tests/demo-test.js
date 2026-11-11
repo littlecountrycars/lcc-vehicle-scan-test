@@ -1,7 +1,8 @@
 /* Demo-truck test for every mode. Runs on every push and pull request (GitHub Actions), and locally:
      npm i playwright && npx playwright install chromium   (once)
      node tests/demo-test.js
-   Checks: each mode scans, idles, drives and shows its own result; Auction and Trade never call monday.com;
+   Checks: connecting reads the vehicle by itself; each option (Read codes, Check-In, Auction, Trade) shows its
+   own steps, idles, drives and shows its result; saved scans open a summary; Auction and Trade never call monday.com;
    no mode ever sends mode 04 (clear codes); old Check-In/Acquisition data carries over. */
 const http = require('http');
 const fs = require('fs');
@@ -38,33 +39,64 @@ async function runMode(browser, base, mode) {
       window.OBD.DemoTransport.prototype.write = function (s) { window.__sent.push(String(s).trim().toUpperCase().replace(/\s+/g, '')); return w.call(this, s); };
     }, 5);
   });
-  await page.goto(base + '?mode=' + mode);
-  ok((await page.textContent('#modeTitle')).length > 0, 'opens in ' + mode + ' mode: ' + await page.textContent('#modeTitle'));
+  // Trade opens from its home-screen shortcut (?mode=trade); the others pick from the list after the read
+  const viaLink = mode === 'trade';
+  await page.goto(base + (viaLink ? '?mode=trade' : ''));
   ok(await page.isVisible('#splash'), 'loading screen shows');
   await page.waitForSelector('#splash', { state: 'detached', timeout: 6000 });
   ok(true, 'loading screen goes away by itself');
+  ok((await page.textContent('#modeTitle')) === 'Vehicle Scan' && await page.isVisible('#connectBtn'), 'start screen: Connect scanner, no mode picked yet');
+  ok(!(await page.isVisible('#pickCard')), 'nothing to pick before a vehicle is read');
   await page.click('#demoBtn');
   await page.waitForSelector('#connPill.demo');
-  const quick = await page.isVisible('#quickBtn');
-  ok(quick === (mode !== 'checkin'), 'quick appraisal button ' + (quick ? 'shown' : 'hidden'));
-  if (quick) { await page.click('#quickBtn'); await page.waitForSelector('#callCard:not(.hidden)', { timeout: 90000 }); await page.waitForSelector('#idleResult:not(.hidden)', { timeout: 60000 }); }
-  else { await page.click('#scanBtn'); await page.waitForSelector('#resultCard:not(.hidden)', { timeout: 90000 }); }
-  ok(await page.isVisible('#resultCard'), 'scan finished');
+  if (!viaLink) await page.waitForSelector('#pickCard:not(.hidden)', { timeout: 90000 });
+  else await page.waitForSelector('#resultCard:not(.hidden)', { timeout: 90000 });
+  ok(true, 'vehicle read by itself after connecting');
+  ok(/1FTEW1EP4JFD00042/.test(await page.textContent('#vehFacts')), 'VIN shown in the vehicle card');
   ok((await page.inputValue('#miles')) !== '', 'miles filled from the truck');
-  if (mode === 'checkin') ok((await page.inputValue('#stock')).length === 6, 'Stock # = last 6 of VIN: ' + await page.inputValue('#stock'));
+  if (!viaLink) {
+    ok((await page.$$('#pickList button')).length === 4, 'four options: Read codes, Check-In, Auction, Trade');
+    await page.click('#pick-' + mode);
+  } else ok(true, 'home-screen shortcut went straight to Trade');
+  await page.waitForSelector('#resultCard:not(.hidden)');
+  ok(!/Vehicle Scan/.test(await page.textContent('#modeTitle')), 'opens in ' + mode + ': ' + await page.textContent('#modeTitle'));
+  ok(await page.isVisible('#vehLine') && (await page.textContent('#vehLine')).length > 3, 'vehicle line at the top: ' + await page.textContent('#vehLine'));
+  if (mode === 'checkin' || mode === 'codes') ok((await page.inputValue('#stock')).length === 6, 'Stock # = last 6 of VIN: ' + await page.inputValue('#stock'));
   else ok((await page.inputValue('#stock')) === '', 'lane/deal # left for the user');
 
+  if (mode === 'codes') {
+    ok(!(await page.isVisible('#idleCard')) && !(await page.isVisible('#driveCard')) && !(await page.isVisible('#estBox')), 'Read codes: no battery/idle, drive or estimate');
+    ok(await page.isVisible('#shareBtn'), 'Read codes: share button shown');
+  } else {
+    ok(await page.isVisible('#idleCard') && await page.isVisible('#driveCard'), 'battery/idle and drive steps shown');
+  }
+  if (mode === 'auction' || mode === 'trade') {
+    ok(await page.isVisible('#callCard'), 'the call shown right after picking');
+    ok(/15-second/.test(await page.textContent('#idleBtn')), 'quick 15-second idle check');
+    await page.click('#idleBtn');
+    await page.waitForSelector('#idleResult:not(.hidden)', { timeout: 60000 });
+    ok(/Active misfire on cylinder 3/.test(await page.textContent('#idleFindings')), 'active misfire found on the demo truck, cylinder 3');
+  }
+  if (mode !== 'codes') {
   await page.click('#driveBtn');
   await page.waitForTimeout(14000);
   await page.click('#driveEnd');
   await page.waitForSelector('#driveResult:not(.hidden)', { timeout: 30000 });
   ok(true, 'drive recorded: ' + (await page.textContent('#driveVerdict')).trim());
+  if (mode === 'checkin') {
+    ok(await page.isVisible('#feltBox'), 'shift blip asks whether it felt like it slipped');
+    await page.click('#feltNo');
+    ok(/no slip felt/i.test(await page.textContent('#driveFindings')), 'answering No marks it fine: ' + (await page.textContent('#driveVerdict')).trim());
+  }
   ok((await page.textContent('#estTotal')) !== '', 'estimate total ' + await page.textContent('#estTotal'));
+  }
 
   if (mode === 'checkin') {
     ok(await page.isVisible('#sendBtn'), 'Send to monday.com shown');
     ok(!(await page.isVisible('#callCard')), 'no bid/offer card');
     ok(/Practice scan/.test(await page.textContent('#matchBox')), 'demo scan does not post to monday.com');
+  } else if (mode === 'codes') {
+    ok(!(await page.isVisible('#sendBtn')) && !(await page.isVisible('#callCard')), 'no monday.com button, no bid/offer');
   } else {
     ok(!(await page.isVisible('#sendBtn')), 'no monday.com button');
     await page.fill('#salePrice', '30000');
@@ -78,8 +110,15 @@ async function runMode(browser, base, mode) {
     } else ok(!(await page.isVisible('#custBtn')), 'no customer copy button');
   }
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, mode + '.png'), fullPage: true });
-  if (mode !== 'checkin') { await page.click('#nextBtn'); await page.waitForTimeout(300); ok(!(await page.isVisible('#resultCard')), 'next vehicle clears the screen'); }
   ok((await page.$$('#hist li')).length >= 1, 'saved in recent list');
+  await page.click('#hist li .histopen');
+  await page.waitForSelector('#sumDlg[open]');
+  ok((await page.textContent('#sumBody')).length > 100, 'tapping a recent scan opens its summary');
+  await page.click('#sumClose');
+  if (mode !== 'checkin') {
+    await page.click('#nextBtn'); await page.waitForTimeout(300);
+    ok(!(await page.isVisible('#resultCard')) && (await page.textContent('#modeTitle')) === 'Vehicle Scan', 'next vehicle goes back to the start');
+  }
   const sent = await page.evaluate(() => window.__sent);
   ok(sent.length > 20, sent.length + ' scanner commands sent');
   ok(!sent.some((c) => c === '04' || /^04/.test(c)), 'never sent mode 04 (clear codes)');
@@ -101,7 +140,8 @@ async function migration(browser, base) {
     localStorage.setItem('lccAcq.history', JSON.stringify([{ id: 'b1', at: new Date().toISOString(), vin: '1FTEW1EP0KFA00002', assessment: { overall: 'watch', findings: [] }, scan: {} }]));
   });
   await page.goto(base);
-  ok((await page.textContent('#modeTitle')) === 'Check-In', 'phone with a monday token opens in Check-In');
+  ok((await page.textContent('#modeTitle')) === 'Vehicle Scan', 'opens to the start screen');
+  ok((await page.$$('#hist li')).length === 2, 'start screen lists the carried-over scans');
   const s = await page.evaluate(() => JSON.parse(localStorage.getItem('lccVS.settings')));
   ok(s.token === 'tok' && s.name === 'Dylan', 'token and name carried over');
   ok(s.per.auction.minProfit === 3000 && s.per.auction.fees === 150, 'auction profit and fees carried over');
@@ -141,7 +181,7 @@ async function testCopy(browser, base) {
   try {
     await migration(browser, base);
     await testCopy(browser, base);
-    for (const m of (process.env.MODES || 'checkin auction trade').split(' ')) await runMode(browser, base, m);
+    for (const m of (process.env.MODES || 'codes checkin auction trade').split(' ')) await runMode(browser, base, m);
   } catch (e) { console.log('  FAIL ' + e.message); failed++; }
   await browser.close(); server.close();
   console.log(failed ? '\n' + failed + ' check(s) failed' : '\nAll checks passed');

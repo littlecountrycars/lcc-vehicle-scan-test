@@ -558,7 +558,8 @@
   }
   const trim = (b) => Math.round(((b - 128) * 100 / 128) * 10) / 10;
 
-  function assessIdle(r) {
+  // opts.codes: stored + pending codes from the scan, so a misfire code and the counters agree
+  function assessIdle(r, opts) {
     const F = [];
     const add = (level, title, detail) => F.push({ level, title, detail: detail || '' });
     const rpms = r.rpm.map((s) => s.rpm).filter((x) => x > 0);
@@ -591,23 +592,35 @@
       else add('good', 'Fuel trim normal, ' + name + ': ' + fmtPct(total), desc);
     }
 
+    /* Misfires. Every engine logs a few now and then (cold starts, bad fuel, a pothole), so a handful is normal.
+       What matters is an ACTIVE misfire: one cylinder clearly worse than the rest on the current trip, or a
+       misfire code. That's when to buy plugs and coils. The engine keeps two counters per cylinder (Mode 06):
+       this trip (lastTrip) and an average of the last 10 trips (avg10). */
+    const codes = (opts && opts.codes) || [];
+    const misCodes = codes.filter((c) => /^P03(0[1-9]|1[0-2])$/.test(c));
+    const codeCyls = misCodes.map((c) => +c.slice(3));
     if (r.misfires && r.misfires.length) {
-      const counts = r.misfires.map((m) => ({ cyl: m.cyl, n: Math.max(m.avg10 || 0, m.lastTrip || 0) }));
-      const sorted = counts.map((c) => c.n).sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      const bad = counts.filter((c) => c.n >= 50 || (c.n >= 10 && c.n > 4 * Math.max(median, 2)));
-      const watch = counts.filter((c) => !bad.includes(c) && c.n >= 10 && c.n > 2 * Math.max(median, 2));
-      if (bad.length) add('problem', 'Misfires on cylinder ' + bad.map((c) => c.cyl).join(', '), bad.map((c) => 'Cyl ' + c.cyl + ': ' + c.n).join(', ') + ' (others around ' + median + '). Start with the plug and coil on ' + (bad.length > 1 ? 'those cylinders' : 'that cylinder') + '; swap the coil to another cylinder to see if the misfire follows it.');
-      else if (watch.length) add('watch', 'A few misfires on cylinder ' + watch.map((c) => c.cyl).join(', '), watch.map((c) => 'Cyl ' + c.cyl + ': ' + c.n).join(', ') + '. Check plugs/coils at the next service.');
-      else add('good', 'No misfire pattern in the engine’s counters', counts.length + ' cylinders checked.');
+      const counts = r.misfires.map((m) => ({ cyl: m.cyl, trip: m.lastTrip || 0, avg: m.avg10 || 0 }));
+      const med = (k) => { const s = counts.map((c) => c[k]).sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+      const mTrip = med('trip'), mAvg = med('avg');
+      const stands = (n, m) => n > 3 * Math.max(m, 3);
+      const active = counts.filter((c) => codeCyls.includes(c.cyl) || (c.trip >= 30 && stands(c.trip, mTrip)) || (c.avg >= 50 && c.trip >= 10 && stands(c.avg, mAvg)));
+      const history = counts.filter((c) => !active.includes(c) && c.avg >= 20 && stands(c.avg, mAvg));
+      const show = (list) => list.map((c) => 'Cyl ' + c.cyl + ': ' + c.trip + ' this trip, ' + c.avg + ' average').join('; ');
+      const total = counts.reduce((s, c) => s + c.trip, 0);
+      if (active.length) add('problem', 'Active misfire on cylinder ' + active.map((c) => c.cyl).join(', '), show(active) + ' (other cylinders around ' + mTrip + '). This one needs fixing: plan on the plug and coil' + (active.length > 1 ? 's' : '') + '. Swap the coil to another cylinder first to see if the misfire follows it.');
+      else if (history.length) add('watch', 'Past misfires on cylinder ' + history.map((c) => c.cyl).join(', '), show(history) + '. Not misfiring much right now. Check that plug and coil at the next service; no parts needed yet.');
+      else add('good', total ? 'Only occasional misfires (normal)' : 'No misfires counted', total ? total + ' misfires this trip spread across ' + counts.length + ' cylinders, no cylinder standing out. Every engine logs a few.' : counts.length + ' cylinders checked.');
+    } else if (misCodes.length) {
+      add('problem', 'Active misfire on cylinder ' + codeCyls.join(', '), 'From the misfire code' + (misCodes.length > 1 ? 's' : '') + ' (' + misCodes.join(', ') + '). Plan on the plug and coil.');
     } else {
-      add('good', 'Per-cylinder misfire counters not available', 'This truck doesn’t share them over the generic port, so the idle RPM above is the guide.');
+      add('good', 'Per-cylinder misfire counters not available', 'This truck doesn’t share them over the generic port, so the idle RPM above and any misfire codes are the guide.');
       F[F.length - 1].level = 'info';
     }
 
     for (const f of F) {
       if (f.level === 'good' || f.level === 'info') continue;
-      if (/Misfire|Rough idle|unsteady idle/i.test(f.title)) f.parts = ['spark plugs', 'ignition coil'];
+      if (/Active misfire|Rough idle/i.test(f.title)) f.parts = ['spark plugs', 'ignition coil'];
       else if (/lean/i.test(f.title)) f.parts = ['air intake boot', 'PCV valve', 'MAF sensor cleaner'];
       else if (/rich/i.test(f.title)) f.parts = ['mass air flow sensor', 'oxygen sensor'];
       else if (/High idle/i.test(f.title)) f.parts = ['throttle body cleaner'];
@@ -615,7 +628,7 @@
     const order = { problem: 0, watch: 1, good: 2, info: 3 };
     F.sort((a, b) => order[a.level] - order[b.level]);
     const overall = F.some((f) => f.level === 'problem') ? 'problem' : F.some((f) => f.level === 'watch') ? 'watch' : 'good';
-    if ((overall !== 'good') && (F.some((f) => /Misfire|Rough|Slightly unsteady/.test(f.title)))) {
+    if (F.some((f) => f.level === 'problem' && /Active misfire|Rough idle/.test(f.title))) {
       F.push({ level: 'info', title: 'Tune-up suggested', detail: 'Plugs and coil/boot inspection, throttle body and MAF cleaning, then rescan.' });
     }
     return { overall, findings: F, stats };
@@ -724,16 +737,16 @@
     return F;
   }
   const MODULE_FIX = {
-    'Airbag': ['Diagnose the airbag fault (seat belt buckles, clock spring, seat connectors are most common). Must be fixed before sale.', ['clock spring'], '$$', [150, 600]],
-    'Passenger airbag sensor': ['Check the passenger seat sensor and connector under the seat.', ['occupant classification sensor'], '$$', [150, 700]],
-    'ABS / brakes': ['Most often a wheel speed sensor or its wiring. Check which wheel from the code.', ['ABS wheel speed sensor'], '$', [100, 300]],
-    'Transmission': ['Check fluid level and condition; transmission shop to diagnose if active.', ['transmission fluid'], '$$', [150, 1500]],
-    'Power steering': ['Check battery voltage and the steering angle calibration; shop to diagnose if active.', [], '$$', [150, 800]],
-    '4x4 / transfer case': ['Test 4x4 engagement; check the encoder motor and front axle actuator.', ['transfer case shift motor'], '$$', [200, 700]],
+    'Airbag': ['Diagnose the airbag fault (seat belt buckles, clock spring, seat connectors are most common). Must be fixed before sale.', ['clock spring'], '$$', [60, 300]],
+    'Passenger airbag sensor': ['Check the passenger seat sensor and connector under the seat.', ['occupant classification sensor'], '$$', [80, 400]],
+    'ABS / brakes': ['Most often a wheel speed sensor or its wiring. Check which wheel from the code.', ['ABS wheel speed sensor'], '$', [25, 150]],
+    'Transmission': ['Check fluid level and condition; transmission shop to diagnose if active.', ['transmission fluid'], '$$', [60, 800]],
+    'Power steering': ['Check battery voltage and the steering angle calibration; shop to diagnose if active.', [], '$$', [100, 500]],
+    '4x4 / transfer case': ['Test 4x4 engagement; check the encoder motor and front axle actuator.', ['transfer case shift motor'], '$$', [80, 350]],
     'Engine computer': ['See the matching engine code above, if any.', [], '', [0, 0]]
   };
   function moduleFix(moduleName) {
-    const f = MODULE_FIX[moduleName] || ['Diagnose with a full scan tool before buying parts.', [], '$', [100, 300]];
+    const f = MODULE_FIX[moduleName] || ['Diagnose with a full scan tool before buying parts.', [], '$', [50, 200]];
     return { fix: f[0], parts: f[1], tier: f[2], tierWord: TIER_WORD[f[2]] || '', range: f[3] };
   }
 
@@ -768,11 +781,23 @@
     const F = []; const add = (level, title, detail, parts) => F.push({ level, title, detail: detail || '', parts });
     if (lane && (S.length < 12 || Math.max(...S.map((s) => s.mph)) < 15)) return { overall: 'watch', findings: [{ level: 'watch', title: 'Drive too short to judge', detail: 'Accelerate firmly from a stop to at least 30 mph so it shifts a couple of times.' }], stats: null };
     if (!lane && S.length < 20) return { overall: 'watch', findings: [{ level: 'watch', title: 'Test drive too short to judge', detail: 'Drive at least 10 minutes, town and highway.' }], stats: null };
-    let miles = 0, maxMph = 0, maxF = null, flares = 0, harsh = 0;
+    /* Shift flares. A slipping shift shows as RPM jumping without the truck speeding up, then dropping back
+       when the gear finally grabs. A downshift also jumps RPM, but it stays up, so it isn't counted.
+       Modern 8- and 10-speeds (2017+ F-150 10R80 and the like) shift fast and often blip RPM a few hundred on a
+       shift without anything wrong, so they get more room. Only big, repeated flares count as slipping on their
+       own; anything smaller asks the driver whether it felt like it slipped (opts.felt, set by the app). */
+    const gears = (opts && +opts.gears) || 0, many = gears >= 8;
+    const minJump = many ? 500 : 350, bigJump = many ? 900 : 700;
+    let miles = 0, maxMph = 0, maxF = null, flares = 0, big = 0, worst = 0, harsh = 0;
     for (let i = 1; i < S.length; i++) {
       const a = S[i - 1], b = S[i], dt = (b.t - a.t) / 3600000;
       miles += ((a.mph + b.mph) / 2) * dt; maxMph = Math.max(maxMph, b.mph);
-      if (b.rpm != null && a.rpm != null && b.mph > 10 && b.mph >= a.mph - 1 && b.mph - a.mph < 3 && b.rpm - a.rpm > 350 && (b.t - a.t) < 1500) flares++;
+      if (b.rpm != null && a.rpm != null && b.mph > 10 && b.mph >= a.mph - 1 && b.mph - a.mph < 3 && b.rpm - a.rpm > minJump && (b.t - a.t) < 1500) {
+        // came back down within ~2.5 s (a flare), or stayed up (a downshift)?
+        let back = false;
+        for (let j = i + 1; j < S.length && S[j].t - b.t < 2500; j++) if (S[j].rpm != null && S[j].rpm < a.rpm + 150) { back = true; break; }
+        if (back) { const jump = b.rpm - a.rpm; flares++; worst = Math.max(worst, jump); if (jump > bigJump) big++; }
+      }
       if (a.mph - b.mph > 8 && (b.t - a.t) < 1500) harsh++;
     }
     r.samples.forEach((s) => { if (s.coolantF != null) maxF = Math.max(maxF || 0, s.coolantF); });
@@ -788,11 +813,17 @@
     }
     const cruiseWobble = cruise.length ? cruise.reduce((x, y) => x + y, 0) / cruise.length : null;
     const minutes = Math.round((S[S.length - 1].t - S[0].t) / 60000);
-    const stats = { miles: Math.round(miles * 10) / 10, minutes, maxMph: Math.round(maxMph), maxF, flares, cruiseWobble: cruiseWobble == null ? null : Math.round(cruiseWobble) };
+    const stats = { miles: Math.round(miles * 10) / 10, minutes, maxMph: Math.round(maxMph), maxF, flares, bigFlares: big, worstFlare: Math.round(worst), gears: gears || null, cruiseWobble: cruiseWobble == null ? null : Math.round(cruiseWobble) };
 
-    if (flares >= 3) add('problem', 'RPM flared ' + flares + ' times while accelerating', 'Engine RPM jumped without the truck speeding up, a sign of slipping shifts. Transmission shop should look at it.', ['transmission fluid']);
-    else if (flares >= 1) add('watch', 'RPM flared ' + flares + ' time' + (flares > 1 ? 's' : '') + ' while accelerating', 'Could be a slipping shift or a downshift. Note how it felt.');
-    else add('good', 'Shifts looked clean', 'No RPM flares while accelerating.');
+    const felt = opts && opts.felt;
+    const tenNote = many ? ' Common on ' + gears + '-speed automatics.' : ' Fast modern automatics (8- and 10-speeds) often do this.';
+    const howMany = flares + ' time' + (flares > 1 ? 's' : '') + ' (biggest ' + Math.round(worst) + ' RPM)';
+    if (!flares) add('good', 'Shifts looked clean', 'No RPM flares while accelerating.');
+    else if (felt === 'yes') add('problem', 'Slipping felt on shifts; RPM flared ' + howMany, 'You felt it slip, and the RPM backs that up. Transmission shop should look at it.', ['transmission fluid']);
+    else if (big >= 3 && flares >= 5) add('problem', 'Big RPM flares on shifts: ' + howMany, 'Repeated large jumps that dropped back, a sign of slipping shifts. If it felt fine, try a fluid check and an adaptive relearn, then drive it again.', ['transmission fluid']);
+    else if (felt === 'no') add('good', 'Small RPM blips on shifts, no slip felt', 'RPM blipped ' + howMany + ' and the driver felt no slipping.' + tenNote);
+    else add('watch', 'RPM blipped on shifts ' + howMany, 'Short blips on a shift are usually normal.' + tenNote + ' Only a problem if you felt it slip or flare. Answer below.');
+    if (flares) F[F.length - 1].flare = true;
     if (cruiseWobble != null) {
       if (cruiseWobble > 60) add('problem', 'RPM wavering at steady highway speed', 'Typical of torque converter shudder or slip. Did you feel a rumble like driving over rumble strips?', ['transmission fluid']);
       else if (cruiseWobble > 35) add('watch', 'Slight RPM wander at cruise', 'Recheck with cruise control on a flat road.');
@@ -870,55 +901,56 @@
   for (let i = 1; i <= 12; i++) CODES['P03' + String(i).padStart(2, '0')] = 'Cylinder ' + i + ' misfire';
   for (let i = 1; i <= 8; i++) { CODES['P020' + i] = 'Fuel injector circuit, cylinder ' + i; CODES['P035' + i] = 'Ignition coil circuit, cylinder ' + i; }
 
-  /* ---------- Likely fix + parts per code (first match wins). Tier: $ under $200, $$ $200-1,000, $$$ likely over $1,000 ---------- */
+  /* ---------- Likely fix + parts per code (first match wins). Tier: $ under $200, $$ $200-1,000, $$$ likely over $1,000.
+     Ranges are what it usually costs LCC, not retail: parts at our price (Walmart, used/junkyard, RockAuto, Amazon) plus our own labor. ---------- */
   const FIXES = [
     [/^P1000$/, 'Not a fault. The truck needs a full drive cycle (town + highway) to finish its self-tests. Rescan after 50–100 mi.', [], '', [0, 0]],
-    [/^P0300$/, 'Pull and check spark plugs and coils, look for vacuum leaks, check fuel trims in the idle check. On high miles, plugs are the first move.', ['spark plugs', 'ignition coil'], '$$', [250, 700]],
-    [/^P03(0[1-9]|1[0-2])$/, 'Swap that cylinder’s coil with a neighbor and rescan. If the misfire moves, replace the coil. If not, replace the plug, then check the injector.', ['spark plug', 'ignition coil'], '$', [80, 300]],
-    [/^P035[1-8]$/, 'Check the coil connector and wiring, then replace the coil.', ['ignition coil'], '$', [80, 250]],
-    [/^P020[1-8]$/, 'Check the injector connector and wiring first, then replace the injector.', ['fuel injector'], '$$', [250, 600]],
-    [/^P0(171|174)$|^P2187$/, 'Smoke-test for vacuum leaks (intake boot, PCV hose, intake gasket), clean the MAF sensor, then check fuel pressure.', ['MAF sensor cleaner', 'air intake boot', 'PCV valve'], '$', [50, 300]],
-    [/^P0(172|175)$/, 'Check for a leaking injector or high fuel pressure, clean or replace the MAF, check the upstream O2 sensor.', ['mass air flow sensor'], '$$', [150, 450]],
-    [/^P0(420|430)$/, 'Fix any misfire, exhaust leak or O2 sensor code first, then retest. If it returns, the catalytic converter is done.', ['catalytic converter', 'downstream oxygen sensor'], '$$$', [1000, 2500]],
-    [/^P0(03\d|04\d|05\d|06[0-7]|13\d|14\d|15\d|16[0-7])$|^P219[5-8]$/, 'Replace the oxygen sensor named in the code (bank and sensor number). Check for exhaust leaks ahead of it.', ['oxygen sensor'], '$', [100, 300]],
-    [/^P04(4\d|5\d)$|^P0496$/, 'Start with the gas cap (tighten or replace), then smoke-test the EVAP system. Purge and vent valves are common failures.', ['gas cap', 'EVAP purge valve', 'EVAP vent valve'], '$', [25, 350]],
-    [/^P010[0-3]$/, 'Clean the MAF sensor and check the intake for leaks after it. Replace the sensor if the code returns.', ['mass air flow sensor'], '$', [20, 300]],
-    [/^P010[5-8]$|^P0069$/, 'Check the MAP sensor vacuum line and connector, then replace the sensor.', ['MAP sensor'], '$', [50, 200]],
-    [/^P011[0-4]$/, 'Check the connector, then replace the intake air temp sensor.', ['intake air temperature sensor'], '$', [40, 150]],
-    [/^P011[5-9]$/, 'Check coolant level and the sensor connector, then replace the coolant temp sensor.', ['coolant temperature sensor'], '$', [60, 200]],
-    [/^P012[58]$/, 'Thermostat is likely stuck open. Replace thermostat and refill coolant.', ['thermostat', 'coolant'], '$', [150, 400]],
-    [/^P012[0-4]$|^P0220$|^P2135$|^P0068$/, 'Clean the throttle body and check its connector. Replace the throttle body if the code returns.', ['throttle body'], '$$', [30, 500]],
-    [/^P001[0-4]$|^P002[0-4]$/, 'Check oil level and that it’s the correct oil, then change it. If the code returns, replace the cam timing (VVT) solenoid.', ['engine oil and filter', 'variable valve timing solenoid'], '$$', [80, 450]],
-    [/^P001[6-9]$/, 'Crank and cam sensors disagree. Often a stretched timing chain on high-mileage trucks. Check oil, then have the shop verify chain stretch.', ['timing chain kit', 'camshaft position sensor'], '$$$', [1500, 3500]],
-    [/^P03(3[5-9])$|^P034[0-9]$/, 'Check the sensor connector and wiring, then replace the crank or cam sensor named in the code.', ['crankshaft position sensor', 'camshaft position sensor'], '$', [100, 300]],
-    [/^P03(2[5-9]|3[0-4])$/, 'Check wiring, then replace the knock sensor (often under the intake on V engines).', ['knock sensor'], '$$', [200, 700]],
-    [/^P040[0-9]$/, 'Clean or replace the EGR valve and clear carbon from the passages.', ['EGR valve'], '$$', [200, 600]],
-    [/^P04(1\d)$|^P049[1-2]$/, 'Test the secondary air pump and check valves; replace the failed part.', ['secondary air injection pump', 'secondary air check valve'], '$$', [300, 900]],
-    [/^P050[0-3]$/, 'Check wiring, then replace the vehicle speed sensor.', ['vehicle speed sensor'], '$', [100, 250]],
-    [/^P050[5-9]$/, 'Clean the throttle body and check for vacuum leaks.', ['throttle body cleaner', 'idle air control valve'], '$', [20, 300]],
-    [/^P052[0-4]$/, 'Verify oil level, then verify actual oil pressure with a mechanical gauge before driving. If pressure is good, replace the sensor.', ['oil pressure sensor'], '$$', [50, 250]],
-    [/^P05(6[0-3])$|^P06(2[0-5])$/, 'Load-test the battery and check the alternator output and cables.', ['alternator', 'battery'], '$$', [150, 700]],
-    [/^P0700$/, 'The transmission computer has its own code. Scan it with a full scan tool and check fluid level and condition.', ['transmission fluid'], '$$', [100, 300]],
-    [/^P070[5-9]$/, 'Adjust or replace the transmission range sensor.', ['transmission range sensor'], '$$', [150, 450]],
-    [/^P07(1\d|2\d)$/, 'Check wiring, then replace the transmission speed or temp sensor named in the code.', ['transmission speed sensor'], '$$', [150, 400]],
-    [/^P073\d$|^P0868$/, 'Transmission slipping. Check fluid level, color and smell. Likely internal: send to the transmission shop for a quote.', ['transmission fluid', 'transmission filter kit'], '$$$', [1800, 4500]],
-    [/^P074[0-4]$/, 'Torque converter clutch. Fluid service first; a shudder that stays usually means converter or valve body.', ['transmission fluid', 'torque converter clutch solenoid'], '$$$', [300, 3000]],
-    [/^P07(4[5-9]|[5-9]\d)$/, 'Shift or pressure control solenoid. Fluid service, then solenoid or valve body.', ['transmission shift solenoid', 'transmission fluid'], '$$', [300, 900]],
-    [/^P00(8[7-9]|9[0-3])$|^P019\d$/, 'Check fuel pressure: fuel filter, fuel pump, then the pressure sensor.', ['fuel pump', 'fuel filter', 'fuel pressure sensor'], '$$', [300, 1100]],
-    [/^P0(234|299|046)$|^P2263$/, 'Check for boost leaks (intercooler hoses and boots), wastegate and boost sensor before condemning the turbo.', ['intercooler boot', 'boost pressure sensor'], '$$', [150, 1000]],
-    [/^P038\d$/, 'Test glow plugs and the glow plug relay/module.', ['glow plug', 'glow plug module'], '$', [150, 500]],
-    [/^P2002$|^P246[3-9]$|^P245\d$|^P047[0-3]$/, 'Diesel particulate filter: check the DPF pressure sensor and its hoses, then run a forced regen. A failed DPF is expensive.', ['DPF pressure sensor'], '$$$', [300, 3000]],
-    [/^P20EE$/, 'Check DEF quality and level, then the NOx sensors. SCR catalyst replacement is expensive.', ['NOx sensor', 'diesel exhaust fluid'], '$$$', [400, 3000]],
-    [/^P048\d$/, 'Check the cooling fan relay, fuse and motor.', ['cooling fan relay', 'radiator cooling fan'], '$$', [150, 600]],
-    [/^P046[0-4]$/, 'Fuel level sender in the tank is likely bad.', ['fuel level sending unit'], '$$', [300, 800]],
-    [/^P057[1-3]$/, 'Replace the brake light switch.', ['brake light switch'], '$', [30, 120]],
-    [/^P06[0-1]\d$/, 'Check battery voltage and grounds first. If the code stays, the engine computer may need reprogramming or replacing (shop job).', ['engine control module'], '$$$', [300, 1500]],
-    [/^P0217$/, 'Do not drive. Check coolant level, fan, water pump and thermostat; pressure-test for leaks or a head gasket.', ['coolant', 'thermostat', 'water pump'], '$$$', [200, 2500]],
-    [/^U/, 'Module communication fault. Check battery voltage, fuses and grounds, then a full scan to find the silent module.', [], '$$', [100, 500]],
-    [/^C/, 'Chassis code (ABS, steering, suspension). Needs a scan tool that reads the ABS module; wheel speed sensors are the most common cause.', ['ABS wheel speed sensor'], '$$', [150, 400]],
-    [/^B/, 'Body code (airbag, lights, comfort). Needs a scan tool that reads that module. Airbag light must be fixed before sale.', [], '$$', [100, 500]],
-    [/^P[13]/, 'Manufacturer-specific code. Look it up for this make before buying parts.', [], '', [100, 300]],
-    [/./, 'Confirm the cause before buying parts.', [], '', [100, 300]]
+    [/^P0300$/, 'Pull and check spark plugs and coils, look for vacuum leaks, check fuel trims in the idle check. On high miles, plugs are the first move.', ['spark plugs', 'ignition coil'], '$$', [120, 400]],
+    [/^P03(0[1-9]|1[0-2])$/, 'Swap that cylinder’s coil with a neighbor and rescan. If the misfire moves, replace the coil. If not, replace the plug, then check the injector.', ['spark plug', 'ignition coil'], '$', [30, 120]],
+    [/^P035[1-8]$/, 'Check the coil connector and wiring, then replace the coil.', ['ignition coil'], '$', [20, 80]],
+    [/^P020[1-8]$/, 'Check the injector connector and wiring first, then replace the injector.', ['fuel injector'], '$', [60, 250]],
+    [/^P0(171|174)$|^P2187$/, 'Smoke-test for vacuum leaks (intake boot, PCV hose, intake gasket), clean the MAF sensor, then check fuel pressure.', ['MAF sensor cleaner', 'air intake boot', 'PCV valve'], '$', [20, 150]],
+    [/^P0(172|175)$/, 'Check for a leaking injector or high fuel pressure, clean or replace the MAF, check the upstream O2 sensor.', ['mass air flow sensor'], '$', [60, 250]],
+    [/^P0(420|430)$/, 'Fix any misfire, exhaust leak or O2 sensor code first, then retest. If it returns, the catalytic converter is done.', ['catalytic converter', 'downstream oxygen sensor'], '$$', [300, 1200]],
+    [/^P0(03\d|04\d|05\d|06[0-7]|13\d|14\d|15\d|16[0-7])$|^P219[5-8]$/, 'Replace the oxygen sensor named in the code (bank and sensor number). Check for exhaust leaks ahead of it.', ['oxygen sensor'], '$', [30, 120]],
+    [/^P04(4\d|5\d)$|^P0496$/, 'Start with the gas cap (tighten or replace), then smoke-test the EVAP system. Purge and vent valves are common failures.', ['gas cap', 'EVAP purge valve', 'EVAP vent valve'], '$', [15, 150]],
+    [/^P010[0-3]$/, 'Clean the MAF sensor and check the intake for leaks after it. Replace the sensor if the code returns.', ['mass air flow sensor'], '$', [15, 120]],
+    [/^P010[5-8]$|^P0069$/, 'Check the MAP sensor vacuum line and connector, then replace the sensor.', ['MAP sensor'], '$', [25, 100]],
+    [/^P011[0-4]$/, 'Check the connector, then replace the intake air temp sensor.', ['intake air temperature sensor'], '$', [15, 60]],
+    [/^P011[5-9]$/, 'Check coolant level and the sensor connector, then replace the coolant temp sensor.', ['coolant temperature sensor'], '$', [20, 80]],
+    [/^P012[58]$/, 'Thermostat is likely stuck open. Replace thermostat and refill coolant.', ['thermostat', 'coolant'], '$', [40, 150]],
+    [/^P012[0-4]$|^P0220$|^P2135$|^P0068$/, 'Clean the throttle body and check its connector. Replace the throttle body if the code returns.', ['throttle body'], '$', [15, 250]],
+    [/^P001[0-4]$|^P002[0-4]$/, 'Check oil level and that it’s the correct oil, then change it. If the code returns, replace the cam timing (VVT) solenoid.', ['engine oil and filter', 'variable valve timing solenoid'], '$', [40, 200]],
+    [/^P001[6-9]$/, 'Crank and cam sensors disagree. Often a stretched timing chain on high-mileage trucks. Check oil, then have the shop verify chain stretch.', ['timing chain kit', 'camshaft position sensor'], '$$$', [800, 2500]],
+    [/^P03(3[5-9])$|^P034[0-9]$/, 'Check the sensor connector and wiring, then replace the crank or cam sensor named in the code.', ['crankshaft position sensor', 'camshaft position sensor'], '$', [25, 120]],
+    [/^P03(2[5-9]|3[0-4])$/, 'Check wiring, then replace the knock sensor (often under the intake on V engines).', ['knock sensor'], '$$', [60, 350]],
+    [/^P040[0-9]$/, 'Clean or replace the EGR valve and clear carbon from the passages.', ['EGR valve'], '$$', [80, 300]],
+    [/^P04(1\d)$|^P049[1-2]$/, 'Test the secondary air pump and check valves; replace the failed part.', ['secondary air injection pump', 'secondary air check valve'], '$$', [120, 450]],
+    [/^P050[0-3]$/, 'Check wiring, then replace the vehicle speed sensor.', ['vehicle speed sensor'], '$', [25, 100]],
+    [/^P050[5-9]$/, 'Clean the throttle body and check for vacuum leaks.', ['throttle body cleaner', 'idle air control valve'], '$', [15, 150]],
+    [/^P052[0-4]$/, 'Verify oil level, then verify actual oil pressure with a mechanical gauge before driving. If pressure is good, replace the sensor.', ['oil pressure sensor'], '$', [20, 120]],
+    [/^P05(6[0-3])$|^P06(2[0-5])$/, 'Load-test the battery and check the alternator output and cables.', ['alternator', 'battery'], '$$', [60, 300]],
+    [/^P0700$/, 'The transmission computer has its own code. Scan it with a full scan tool and check fluid level and condition.', ['transmission fluid'], '$', [30, 150]],
+    [/^P070[5-9]$/, 'Adjust or replace the transmission range sensor.', ['transmission range sensor'], '$$', [60, 250]],
+    [/^P07(1\d|2\d)$/, 'Check wiring, then replace the transmission speed or temp sensor named in the code.', ['transmission speed sensor'], '$', [30, 150]],
+    [/^P073\d$|^P0868$/, 'Transmission slipping. Check fluid level, color and smell. Likely internal: send to the transmission shop for a quote.', ['transmission fluid', 'transmission filter kit'], '$$$', [1200, 3500]],
+    [/^P074[0-4]$/, 'Torque converter clutch. Fluid service first; a shudder that stays usually means converter or valve body.', ['transmission fluid', 'torque converter clutch solenoid'], '$$$', [150, 2000]],
+    [/^P07(4[5-9]|[5-9]\d)$/, 'Shift or pressure control solenoid. Fluid service, then solenoid or valve body.', ['transmission shift solenoid', 'transmission fluid'], '$$', [150, 600]],
+    [/^P00(8[7-9]|9[0-3])$|^P019\d$/, 'Check fuel pressure: fuel filter, fuel pump, then the pressure sensor.', ['fuel pump', 'fuel filter', 'fuel pressure sensor'], '$$', [150, 600]],
+    [/^P0(234|299|046)$|^P2263$/, 'Check for boost leaks (intercooler hoses and boots), wastegate and boost sensor before condemning the turbo.', ['intercooler boot', 'boost pressure sensor'], '$$', [60, 600]],
+    [/^P038\d$/, 'Test glow plugs and the glow plug relay/module.', ['glow plug', 'glow plug module'], '$', [80, 300]],
+    [/^P2002$|^P246[3-9]$|^P245\d$|^P047[0-3]$/, 'Diesel particulate filter: check the DPF pressure sensor and its hoses, then run a forced regen. A failed DPF is expensive.', ['DPF pressure sensor'], '$$$', [200, 2000]],
+    [/^P20EE$/, 'Check DEF quality and level, then the NOx sensors. SCR catalyst replacement is expensive.', ['NOx sensor', 'diesel exhaust fluid'], '$$$', [250, 2000]],
+    [/^P048\d$/, 'Check the cooling fan relay, fuse and motor.', ['cooling fan relay', 'radiator cooling fan'], '$$', [60, 300]],
+    [/^P046[0-4]$/, 'Fuel level sender in the tank is likely bad.', ['fuel level sending unit'], '$$', [100, 400]],
+    [/^P057[1-3]$/, 'Replace the brake light switch.', ['brake light switch'], '$', [15, 60]],
+    [/^P06[0-1]\d$/, 'Check battery voltage and grounds first. If the code stays, the engine computer may need reprogramming or replacing (shop job).', ['engine control module'], '$$', [150, 700]],
+    [/^P0217$/, 'Do not drive. Check coolant level, fan, water pump and thermostat; pressure-test for leaks or a head gasket.', ['coolant', 'thermostat', 'water pump'], '$$$', [100, 2000]],
+    [/^U/, 'Module communication fault. Check battery voltage, fuses and grounds, then a full scan to find the silent module.', [], '$$', [50, 300]],
+    [/^C/, 'Chassis code (ABS, steering, suspension). Needs a scan tool that reads the ABS module; wheel speed sensors are the most common cause.', ['ABS wheel speed sensor'], '$', [40, 200]],
+    [/^B/, 'Body code (airbag, lights, comfort). Needs a scan tool that reads that module. Airbag light must be fixed before sale.', [], '$$', [50, 300]],
+    [/^P[13]/, 'Manufacturer-specific code. Look it up for this make before buying parts.', [], '', [50, 200]],
+    [/./, 'Confirm the cause before buying parts.', [], '', [50, 200]],
   ];
   const TIER_WORD = { '$': 'Under $200', '$$': '$200–$1,000, get two quotes', '$$$': 'Likely over $1,000: Jonathan decides fix, wholesale or sell as-is' };
   function fixFor(code) {
