@@ -157,17 +157,17 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
 /* Loading screen: the Nebraska border traces, fills orange and bounces, then "Little" and "Country" rise one word at a time.
    Pure CSS, so it ends and fades out even if a script fails. Tap to skip. */
 .splash { position: fixed; inset: 0; z-index: 100; background: var(--bg); color: var(--fg); display: grid; place-items: center;
-  animation: splashOut 3.4s linear both; }
+  animation: splashOut 1.7s linear both; }
 .splash .in { display: grid; justify-items: center; gap: 16px; width: min(64vw, 300px); }
-.splash svg { width: 100%; height: auto; overflow: visible; display: block; transform-origin: 50% 50%; animation: spPop 3.4s both; }
+.splash svg { width: 100%; height: auto; overflow: visible; display: block; transform-origin: 50% 50%; animation: spPop 1.7s both; }
 .splash svg * { transform-box: view-box; }
 .splash .sp-out { fill: var(--fg); }
 .splash .sp-well { fill: var(--surface); }
-.splash .sp-solid { animation: spSolid 3.4s both; }
-.splash .sp-trace { fill: none; stroke: var(--fg); stroke-width: 5; stroke-linejoin: round; stroke-dasharray: 1; animation: spTrace 3.4s ease-in-out both; }
-.splash .sp-fill { fill: var(--lcc-orange); transform-origin: 600px 580px; animation: spFill 3.4s cubic-bezier(.3,1.5,.5,1) both; }
+.splash .sp-solid { animation: spSolid 1.7s both; }
+.splash .sp-trace { fill: none; stroke: var(--fg); stroke-width: 5; stroke-linejoin: round; stroke-dasharray: 1; animation: spTrace 1.7s ease-in-out both; }
+.splash .sp-fill { fill: var(--lcc-orange); transform-origin: 600px 580px; animation: spFill 1.7s cubic-bezier(.3,1.5,.5,1) both; }
 .splash .words { display: flex; gap: .3em; font-family: var(--font-head); font-size: 30px; line-height: 1; letter-spacing: .08em; text-transform: uppercase; margin: 0; font-weight: 400; }
-.splash .words span { display: inline-block; animation: spWord1 3.4s both; }
+.splash .words span { display: inline-block; animation: spWord1 1.7s both; }
 .splash .words span + span { animation-name: spWord2; }
 .splash.skip { animation: splashOut .25s linear both; }
 @keyframes splashOut { 0%, 88% { opacity: 1; visibility: visible; } 100% { opacity: 0; visibility: hidden; } }
@@ -178,7 +178,7 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
 @keyframes spWord1 { 0%, 60% { opacity: 0; transform: translateY(8px); } 72%, 100% { opacity: 1; transform: none; } }
 @keyframes spWord2 { 0%, 66% { opacity: 0; transform: translateY(8px); } 78%, 100% { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .splash { animation-duration: 1.2s; }
+  .splash { animation-duration: .6s; }
   .splash svg, .splash svg *, .splash .words span { animation: none !important; }
 }
 @media print { .splash { display: none !important; } }
@@ -202,7 +202,7 @@ select.sel { width: 100%; border: 1px solid var(--line); background: var(--bg); 
   function done() { if (s && s.parentNode) s.parentNode.removeChild(s); }
   s.addEventListener('animationend', function (e) { if (e.target === s) done(); });
   s.addEventListener('click', function () { s.classList.add('skip'); });
-  setTimeout(done, 4000);
+  setTimeout(done, 2500);
 })();
 </script>
 <header class="top">
