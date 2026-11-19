@@ -14,7 +14,7 @@ Everything else (`app.js`, `obd.js`, `index.html`, `sw.js`, `modes/`, `tests/`) 
 
 Who may push and the rest of the rules below are the same as for the real app. The notes below were copied from the real app; read "Live" as the real app's address.
 
-One web app for Little Country Cars' Veepeak Bluetooth OBD2 scanner, with three modes. Made Nov 10, 2026 by merging Check-In Scan (littlecountrycars/lcc-check-in-scan) and Acquisition Scan (littlecountrycars/lcc-aquisition-scan) so the shared scanner code is kept in one place. The old repos are archived; their addresses redirect here.
+One web app for Little Country Cars' Veepeak Bluetooth OBD2 scanner: connect, the vehicle is read, then pick Read codes, Check-In, Auction or Trade. Made Nov 10, 2026 by merging Check-In Scan (littlecountrycars/lcc-check-in-scan) and Acquisition Scan (littlecountrycars/lcc-aquisition-scan) so the shared scanner code is kept in one place. The old repos are archived; their addresses redirect here.
 
 Live: https://littlecountrycars.github.io/lcc-vehicle-scan/ (GitHub Pages from `main`, root). Repo: littlecountrycars/lcc-vehicle-scan. Pushing to `main` publishes; phones get the new version next open.
 

@@ -13,13 +13,14 @@ The test copy keeps its own saved scans on the phone, separate from the real app
 
 # LCC Vehicle Scan
 
-Little Country Cars' scan app for the Veepeak Bluetooth OBD2 scanner, on an Android phone in Chrome (138+). One app, three modes:
+Little Country Cars' scan app for the Veepeak Bluetooth OBD2 scanner, on an Android phone in Chrome (138+). Connect the scanner and the vehicle is read by itself (year, model, engine, miles, codes). Then pick what you're doing with it:
 
+- **Read codes**: just the codes, what they mean and the likely fix.
 - **Check-In** (Dylan, recon): scan a vehicle we bought, Day-1 estimate, send to monday.com Inventory Recon.
 - **Auction** (Jonathan, buying): quick appraisal, red flags, max bid, lane drive. Stays on the phone.
 - **Trade** (Simon, sales): quick appraisal, test drive, trade offer with payoff/equity, customer copy. Stays on the phone.
 
-Open https://littlecountrycars.github.io/lcc-vehicle-scan/ in Chrome → ⋮ → Add to Home screen. Pick your mode the first time; tap the name at the top to switch.
+Open https://littlecountrycars.github.io/lcc-vehicle-scan/ in Chrome → ⋮ → Add to Home screen. Recent scans are on the start screen; tap one for its summary.
 
 - Read-only: it never clears codes.
 - No keys or customer data live here. A monday.com token is stored only on the phone that uses it.
