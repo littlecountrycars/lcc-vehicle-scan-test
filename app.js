@@ -983,7 +983,7 @@
       } else {
         box.innerHTML = '<span>No vehicle with stock # <b>' + esc(stock) + '</b> on Inventory Recon yet. Send will add it as a new vehicle, or search for it if it\u2019s there under another stock #.</span>';
         sendMode = 'new'; show($('newBox')); show($('searchBox')); suggestName();
-        $('sendBtn').disabled = false; $('sendBtn').textContent = 'Add vehicle & send';
+        $('sendBtn').disabled = sending; $('sendBtn').textContent = 'Add vehicle & send';
       }
     } catch (e) {
       box.innerHTML = '';
@@ -1000,7 +1000,7 @@
     const b = document.createElement('span'); b.className = 'muted small'; b.textContent = 'Stock # ' + (stockTxt || '(blank, will be set to ' + current.stock + ')');
     box.append(a, link, b);
     show($('newBox'), false); show($('searchBox'), false);
-    $('sendBtn').disabled = false; $('sendBtn').textContent = 'Send to monday.com';
+    $('sendBtn').disabled = sending; $('sendBtn').textContent = 'Send to monday.com';
   }
   function suggestName() {
     if (!isMonday() || sendMode !== 'new' || !current || $('newName').value) return;
@@ -1022,9 +1022,13 @@
     }
   }
   let testArmedAt = 0;
+  // One send at a time. A second tap (or a Recent scans Send) while the first is still
+  // creating the vehicle used to add the same truck twice (2014 F-150 A15733, 11/11/2026).
+  let sending = false;
   async function send(rec, opts = {}) {
     rec = rec || current;
     if (!rec || rec.demo || (rec.mode && rec.mode !== 'checkin')) return;
+    if (sending) return;
     const msg = $('sendMsg');
     if (TEST && Date.now() - testArmedAt > 8000) {
       testArmedAt = Date.now();
@@ -1033,6 +1037,7 @@
       return;
     }
     testArmedAt = 0;
+    sending = true;
     msg.className = 'notice'; msg.textContent = 'Sending\u2026'; show(msg);
     $('sendBtn').disabled = true;
     try {
@@ -1115,6 +1120,7 @@
       msg.textContent = e.message === 'NO_TOKEN' ? 'Add your monday.com token in Settings (gear at the top).' : 'Not sent: ' + e.message + '. The scan is saved on this phone; try again from Recent scans.';
       saveHist(rec);
     } finally {
+      sending = false;
       $('sendBtn').disabled = false;
       renderHist();
     }
